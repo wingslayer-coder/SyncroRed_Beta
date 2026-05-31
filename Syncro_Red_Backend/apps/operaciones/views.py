@@ -4,6 +4,7 @@ from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
 from django.db import transaction
+from django.db.models import Sum
 from .models import ServicioActivo, ServicioHistorico, RegistroEstacion, MaestroTurno, GraficoMensual, ItinerarioEquipo
 from .serializers import (
     ServicioActivoSerializer, ServicioHistoricoSerializer, RegistroEstacionSerializer,
@@ -11,6 +12,8 @@ from .serializers import (
 )
 from .filters import ServicioActivoFilter, RegistroEstacionFilter, ItinerarioEquipoFilter
 from apps.usuarios.models import Usuario, AusenciaTemporal
+from apps.alertas.models import Emergencia, Incidencia, FallaEquipo
+from apps.bitacora.models import ReporteFinal, NovedadOperativa
 
 
 class ServicioActivoViewSet(viewsets.ModelViewSet):
@@ -177,3 +180,97 @@ class TripulacionDisponibleView(APIView):
             for u in qs
         ]
         return Response({'fecha': fecha, 'disponibles': data})
+
+
+class DashboardView(APIView):
+    """Devuelve KPIs calculados desde los datos reales del sistema."""
+
+    def get(self, request):
+        hoy = timezone.now().date()
+
+        servicios_hoy = ServicioActivo.objects.filter(fecha=hoy).count()
+        servicios_mes = ServicioHistorico.objects.filter(fecha__year=hoy.year, fecha__month=hoy.month).count()
+
+        registros_hoy = RegistroEstacion.objects.filter(fecha=hoy)
+        total_registros = registros_hoy.count()
+        a_tiempo = registros_hoy.filter(estado='A LA HORA').count()
+        puntualidad = round((a_tiempo / total_registros * 100), 2) if total_registros else 0.0
+
+        atrasos = NovedadOperativa.objects.filter(fecha=hoy).aggregate(total_minutos=Sum('minutos'))
+        atraso_promedio = round(atrasos['total_minutos'] / total_registros, 1) if total_registros and atrasos['total_minutos'] else 0.0
+
+        emergencias_activas = Emergencia.objects.filter(estado_alerta='ACTIVA').count()
+        incidencias_activas = Incidencia.objects.filter(estado__in=['REGISTRADA', 'EN GESTION']).count()
+        fallas_pendientes = FallaEquipo.objects.filter(estado='PENDIENTE').count()
+
+        tripulacion_total = Usuario.objects.filter(is_active=True, cargo__in=['MAQUINISTA', 'AYUDANTE']).count()
+        ausencias_hoy = AusenciaTemporal.objects.filter(fecha=hoy).count()
+
+        reportes_hoy = ReporteFinal.objects.filter(fecha=hoy).count()
+
+        return Response({
+            'fecha': str(hoy),
+            'servicios_hoy': servicios_hoy,
+            'servicios_mes': servicios_mes,
+            'puntualidad_otp': puntualidad,
+            'atraso_promedio_min': atraso_promedio,
+            'emergencias_activas': emergencias_activas,
+            'incidencias_activas': incidencias_activas,
+            'fallas_pendientes': fallas_pendientes,
+            'tripulacion_total': tripulacion_total,
+            'ausencias_hoy': ausencias_hoy,
+            'reportes_hoy': reportes_hoy,
+        })
+
+
+class EventosMapaView(APIView):
+    """Devuelve eventos operacionales (incidencias y emergencias) en un rango de fechas para el mapa."""
+
+    def get(self, request):
+        fecha_desde = request.query_params.get('fecha_desde')
+        fecha_hasta = request.query_params.get('fecha_hasta')
+
+        if not fecha_desde or not fecha_hasta:
+            return Response({'error': 'fecha_desde y fecha_hasta son requeridos'}, status=status.HTTP_400_BAD_REQUEST)
+
+        incidencias = Incidencia.objects.filter(fecha__gte=fecha_desde, fecha__lte=fecha_hasta)
+        emergencias = Emergencia.objects.filter(fecha_hora__date__gte=fecha_desde, fecha_hora__date__lte=fecha_hasta)
+
+        eventos = []
+        for inc in incidencias:
+            eventos.append({
+                'tipo': 'Incidencia',
+                'color': '#FFD400',
+                'fecha_hora': inc.fecha_hora.isoformat() if inc.fecha_hora else None,
+                'fecha': str(inc.fecha),
+                'tren': inc.tren_num,
+                'equipo': inc.equipo,
+                'maquinista': inc.maquinista,
+                'ayudante': inc.ayudante,
+                'evento': inc.tipo_incidencia,
+                'detalle': inc.detalle,
+                'ubicacion': inc.ubicacion,
+                'lat': inc.latitud,
+                'lon': inc.longitud,
+                'estado': inc.estado,
+            })
+
+        for em in emergencias:
+            eventos.append({
+                'tipo': 'Emergencia',
+                'color': '#D00000',
+                'fecha_hora': em.fecha_hora.isoformat() if em.fecha_hora else None,
+                'fecha': str(em.fecha_hora.date()) if em.fecha_hora else None,
+                'tren': em.tren_num,
+                'equipo': em.equipo,
+                'maquinista': em.maquinista,
+                'ayudante': em.ayudante,
+                'evento': em.tipo_evento,
+                'detalle': em.ubicacion,
+                'ubicacion': em.ubicacion,
+                'lat': em.latitud,
+                'lon': em.longitud,
+                'estado': em.estado_alerta,
+            })
+
+        return Response({'fecha_desde': fecha_desde, 'fecha_hasta': fecha_hasta, 'eventos': eventos})

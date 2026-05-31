@@ -1,5 +1,6 @@
 from rest_framework import viewsets, views
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from .models import Usuario, RegistroOperativo, AusenciaTemporal
@@ -34,6 +35,7 @@ class LoginRutView(views.APIView):
                 'nombre': user.nombre,
                 'apellido': user.apellido,
                 'cargo': user.cargo,
+                'is_active': user.is_active,
                 'is_staff': user.is_staff,
             }
         })
@@ -52,3 +54,18 @@ class RegistroOperativoViewSet(viewsets.ModelViewSet):
 class AusenciaTemporalViewSet(viewsets.ModelViewSet):
     queryset = AusenciaTemporal.objects.all()
     serializer_class = AusenciaTemporalSerializer
+
+
+class MeView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        return Response({
+            'rut': user.rut,
+            'nombre': user.nombre,
+            'apellido': user.apellido,
+            'cargo': user.cargo,
+            'is_active': user.is_active,
+            'is_staff': user.is_staff,
+        })

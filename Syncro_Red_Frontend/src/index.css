@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+@theme {
+  --color-azul: #001f4d;
+  --color-azul-2: #0047a3;
+  --color-azul-3: #3b82f6;
+  --color-rojo: #cc0000;
+  --color-rojo-oscuro: #a30000;
+  --color-verde: #16a34a;
+  --color-ambar: #ee6c00;
+  --color-gris: #64748b;
+  --color-gris-bg: #f1f5f9;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
