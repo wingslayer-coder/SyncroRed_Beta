@@ -7,4 +7,6 @@ router.register(r'usuarios', views.UsuarioViewSet, basename='usuario')
 router.register(r'registros-operativos', views.RegistroOperativoViewSet, basename='registro-operativo')
 router.register(r'ausencias', views.AusenciaTemporalViewSet, basename='ausencia')
 
-urlpatterns = router.urls
+urlpatterns = router.urls + [
+    path('change-password/', views.ChangePasswordView.as_view(), name='change_password'),
+]

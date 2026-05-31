@@ -1,0 +1,143 @@
+.menu-page {
+  max-width: 600px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 36px 32px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0, 31, 77, 0.06);
+  border: 1px solid rgba(0, 31, 77, 0.08);
+  text-align: center;
+}
+
+.menu-header {
+  text-align: center;
+  margin-bottom: 36px;
+  position: relative;
+}
+
+.menu-header h2 {
+  color: #001f4d;
+  font-size: 30px;
+  font-weight: 800;
+  margin: 0 0 10px 0;
+  letter-spacing: -0.5px;
+}
+
+.menu-header h2::after {
+  content: "";
+  display: block;
+  width: 60px;
+  height: 4px;
+  background-color: #cc0000; /* Rojo EFE */
+  margin: 12px auto 0 auto;
+  border-radius: 2px;
+}
+
+.menu-header p {
+  color: #555;
+  font-size: 15px;
+  font-weight: 500;
+  margin: 0;
+}
+
+.menu-grid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.menu-card {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  width: 100%;
+  padding: 16px 24px;
+  border-radius: 12px;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 16px;
+  color: #001f4d;
+  background: #ffffff;
+  border: 1px solid rgba(0, 31, 77, 0.12);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.02);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+
+.menu-card:hover {
+  background-color: #ffffff;
+  border-color: #cc0000; /* Border rojo en hover */
+  color: #cc0000;
+  box-shadow: 0 8px 20px rgba(204, 0, 0, 0.1);
+  transform: translateX(6px); /* Desplazamiento sutil a la derecha */
+}
+
+.menu-card.primary {
+  background-color: #001f4d;
+  color: #ffffff;
+  border-color: #001f4d;
+}
+
+.menu-card.primary:hover {
+  background-color: #cc0000;
+  border-color: #cc0000;
+  color: #ffffff;
+  box-shadow: 0 8px 20px rgba(204, 0, 0, 0.2);
+}
+
+.menu-card svg {
+  width: 28px;
+  height: 28px;
+  stroke-width: 2;
+  color: #001f4d;
+  flex-shrink: 0;
+  transition: color 0.25s ease;
+}
+
+.menu-card:hover svg {
+  color: #cc0000;
+}
+
+.menu-card.primary svg {
+  color: #ffffff;
+}
+
+.menu-card.primary:hover svg {
+  color: #ffffff;
+}
+
+.menu-logout-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 32px;
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  color: #cc0000;
+  background-color: transparent;
+  border: 1px solid rgba(204, 0, 0, 0.2);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  width: auto;
+}
+
+.menu-logout-btn:hover {
+  background-color: rgba(204, 0, 0, 0.05);
+  border-color: #cc0000;
+  box-shadow: 0 4px 12px rgba(204, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+
+

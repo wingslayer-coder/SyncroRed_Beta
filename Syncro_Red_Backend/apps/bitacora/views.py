@@ -6,6 +6,7 @@ from openpyxl import Workbook
 from .models import ReporteFinal, NovedadOperativa
 from .serializers import ReporteFinalSerializer, NovedadOperativaSerializer
 from .filters import ReporteFinalFilter
+from .services import generar_reporte_turno
 
 
 class ReporteFinalViewSet(viewsets.ModelViewSet):
@@ -40,6 +41,20 @@ class ReporteFinalViewSet(viewsets.ModelViewSet):
         response = HttpResponse(buffer.read(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         response['Content-Disposition'] = f'attachment; filename="reportes_{fecha or "todos"}.xlsx"'
         return response
+
+    @decorators.action(detail=False, methods=['post'])
+    def generar_reporte(self, request):
+        fecha = request.data.get('fecha')
+        if not fecha:
+            return Response({'error': 'La fecha es obligatoria'}, status=400)
+            
+        usuario = request.user
+        texto_generado = generar_reporte_turno(fecha, f"{usuario.nombre} {usuario.apellido}", usuario.cargo)
+        
+        return Response({
+            'fecha': fecha,
+            'reporte_texto': texto_generado
+        })
 
 
 class NovedadOperativaViewSet(viewsets.ModelViewSet):

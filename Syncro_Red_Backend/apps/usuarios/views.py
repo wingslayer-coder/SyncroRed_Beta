@@ -1,6 +1,8 @@
-from rest_framework import viewsets, views
+import secrets
+from rest_framework import viewsets, views, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import action
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from .models import Usuario, RegistroOperativo, AusenciaTemporal
@@ -37,6 +39,7 @@ class LoginRutView(views.APIView):
                 'cargo': user.cargo,
                 'is_active': user.is_active,
                 'is_staff': user.is_staff,
+                'must_change_password': user.must_change_password,
             }
         })
 
@@ -44,6 +47,33 @@ class LoginRutView(views.APIView):
 class UsuarioViewSet(viewsets.ModelViewSet):
     queryset = Usuario.objects.all()
     serializer_class = UsuarioSerializer
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def reset_password(self, request, pk=None):
+        """Admin resetea la contraseña de un usuario y genera una temporal."""
+        user = self.get_object()
+        temp_password = secrets.token_urlsafe(8)
+        user.set_password(temp_password)
+        user.must_change_password = True
+        user.save()
+        return Response({
+            'temp_password': temp_password,
+            'message': f'Contraseña reseteada para {user.rut}. El usuario debe cambiarla al iniciar sesión.'
+        })
+
+
+class ChangePasswordView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        new_password = request.data.get('new_password')
+        if not new_password or len(new_password) < 4:
+            return Response({'error': 'La contraseña debe tener al menos 4 caracteres.'}, status=status.HTTP_400_BAD_REQUEST)
+        user.set_password(new_password)
+        user.must_change_password = False
+        user.save()
+        return Response({'message': 'Contraseña actualizada correctamente.'})
 
 
 class RegistroOperativoViewSet(viewsets.ModelViewSet):
@@ -68,4 +98,5 @@ class MeView(views.APIView):
             'cargo': user.cargo,
             'is_active': user.is_active,
             'is_staff': user.is_staff,
+            'must_change_password': user.must_change_password,
         })

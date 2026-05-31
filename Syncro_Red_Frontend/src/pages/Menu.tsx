@@ -1,5 +1,6 @@
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
+import './Menu.css';
 import {
   LayoutDashboard,
   ClipboardList,
@@ -11,58 +12,55 @@ import {
   AlertTriangle,
   Database,
   Upload,
+  LogOut,
 } from 'lucide-react';
 
 export default function Menu() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const rol = (user?.cargo || '').toUpperCase();
   const esGerencia = rol === 'GERENTE' || rol === 'GERENCIA';
   const esAdmin = rol === 'ADMIN';
   const esJefeServicio = rol === 'JEFE SERVICIO' || rol === 'JEFE DE SERVICIO';
   const esJefatura = esAdmin || rol === 'IL' || rol === 'INSPECTOR DE LINEA' || rol === 'JEFE DE OPERACIONES' || rol === 'SL' || rol === 'SUPERVISOR DE LINEA';
 
-  const btn = (to: string, label: string, icon: React.ReactNode, primary = false) => (
+  const card = (to: string, label: string, icon: React.ReactNode, primary = false) => (
     <Link
       key={to}
       to={to}
-      className={`flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-all ${
-        primary
-          ? 'bg-azul text-white hover:bg-azul-2 shadow-md'
-          : 'bg-white text-azul border border-gray-200 hover:border-azul-2 hover:shadow-sm'
-      }`}
+      className={`menu-card ${primary ? 'primary' : ''}`}
     >
       {icon}
-      {label}
+      <span>{label}</span>
     </Link>
   );
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div className="text-center space-y-1">
-        <h2 className="text-2xl font-bold text-azul">SyncroRed EFE Sur</h2>
-        <p className="text-gray-500">
+    <div className="menu-page">
+      <div className="menu-header">
+        <h2>SyncroRed EFE Sur</h2>
+        <p>
           Bienvenido: {user?.nombre} {user?.apellido} | {rol}
         </p>
       </div>
 
-      <div className="space-y-3">
-        {(esGerencia || esAdmin) && btn('/dashboard', 'Dashboard Gerencial', <LayoutDashboard className="w-5 h-5" />, true)}
+      <div className="menu-grid">
+        {(esGerencia || esAdmin) && card('/dashboard', 'Dashboard Gerencial', <LayoutDashboard size={40} />, true)}
 
-        {btn('/pauta-diaria', 'Pauta Diaria', <ClipboardList className="w-5 h-5" />, esJefatura && !esJefeServicio)}
+        {card('/pauta-diaria', 'Pauta Diaria', <ClipboardList size={40} />, esJefatura && !esJefeServicio)}
 
         {!esGerencia && (
           <>
             {esJefeServicio ? (
               <>
-                {btn('/jefe-servicio', 'Consola de Control de Tráfico', <TrainFront className="w-5 h-5" />, true)}
-                {btn('/historicos', 'Históricos y Reportes', <BookOpen className="w-5 h-5" />)}
+                {card('/jefe-servicio', 'Consola de Control de Tráfico', <TrainFront size={40} />, true)}
+                {card('/historicos', 'Históricos y Reportes', <BookOpen size={40} />)}
               </>
             ) : (
               <>
-                {btn('/bitacora', 'Servicios en curso', <TrainFront className="w-5 h-5" />, true)}
-                {btn('/mapa-ferroviario', 'Mapa Ferroviario', <Map className="w-5 h-5" />)}
-                {btn('/asistencia', 'Asistencia y alistación', <UserCheck className="w-5 h-5" />, !esAdmin)}
-                {btn('/turnos', 'Gráfico Tripulación', <Users className="w-5 h-5" />)}
+                {card('/bitacora', 'Servicios en curso', <TrainFront size={40} />, true)}
+                {card('/mapa-ferroviario', 'Mapa Ferroviario', <Map size={40} />)}
+                {card('/asistencia', 'Asistencia y alistación', <UserCheck size={40} />, !esAdmin)}
+                {card('/turnos', 'Gráfico Tripulación', <Users size={40} />)}
               </>
             )}
           </>
@@ -70,19 +68,24 @@ export default function Menu() {
 
         {esJefatura && !esJefeServicio && (
           <>
-            {btn('/visor-bd', 'Base de Datos', <Database className="w-5 h-5" />, true)}
-            {btn('/personal-operativo', 'Personal Operativo', <Users className="w-5 h-5" />)}
-            {btn('/gestion-bajas', 'Gestión de Bajas', <AlertTriangle className="w-5 h-5" />)}
+            {card('/visor-bd', 'Base de Datos', <Database size={40} />, true)}
+            {card('/personal-operativo', 'Personal Operativo', <Users size={40} />)}
+            {card('/gestion-bajas', 'Gestión de Bajas', <AlertTriangle size={40} />)}
           </>
         )}
 
         {esAdmin && (
           <>
-            {btn('/georreferencia-admin', 'Georreferencia de Hitos', <Map className="w-5 h-5" />)}
-            {btn('/carga-tripulacion', 'Cargar Tripulación CSV', <Upload className="w-5 h-5" />, true)}
+            {card('/georreferencia-admin', 'Georreferencia de Hitos', <Map size={40} />)}
+            {card('/carga-tripulacion', 'Cargar Tripulación CSV', <Upload size={40} />, true)}
           </>
         )}
       </div>
+
+      <button onClick={logout} className="menu-logout-btn">
+        <LogOut size={18} />
+        Cerrar Sesión
+      </button>
     </div>
   );
 }

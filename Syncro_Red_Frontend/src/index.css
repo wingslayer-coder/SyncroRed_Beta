@@ -1,24 +1,48 @@
 @import "tailwindcss";
 
 @theme {
-  --color-azul: #001f4d;
-  --color-azul-2: #0047a3;
-  --color-azul-3: #3b82f6;
-  --color-rojo: #cc0000;
-  --color-rojo-oscuro: #a30000;
+  /* Paleta Corporativa Oficial (Inspirada en web EFE) */
+  --color-efe-navy: #002A5C;
+  --color-efe-red: #E31837;
+  --color-efe-light-blue: #7BA4DB;
+  
+  /* Mapeo de colores existentes a la nueva paleta corporativa */
+  --color-azul: #002A5C;      /* EFE Navy */
+  --color-azul-2: #003b80;    /* EFE Navy Lighter */
+  --color-rojo: #E31837;      /* EFE Red */
+  --color-rojo-oscuro: #B30E26;
   --color-verde: #16a34a;
   --color-ambar: #ee6c00;
   --color-gris: #64748b;
-  --color-gris-bg: #f1f5f9;
+  --color-bg-light: #F8F9FB;  /* Fondo gris muy sutil corporativo */
 }
 
-body {
+/* Formato Base Global HTML/CSS */
+html, body {
   margin: 0;
-  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  padding: 0;
+  background-color: var(--color-bg-light);
+  color: #2D3748; /* Texto base oscuro, no negro puro para mejor lectura */
+  /* Tipografía limpia moderna, similar a la usada institucionalmente */
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
 }
 
 #root {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Clases base utilitarias corporativas */
+.efe-shadow {
+  box-shadow: 0 4px 12px rgba(0, 42, 92, 0.08);
+}
+
+.efe-heading {
+  color: var(--color-efe-navy);
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
