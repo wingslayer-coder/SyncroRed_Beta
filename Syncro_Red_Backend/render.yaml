@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: syncro-red-backend
+    runtime: python
+    rootDir: Syncro_Red_Backend
+    buildCommand: "./build.sh"
+    startCommand: "gunicorn efe_sur.wsgi:application --bind 0.0.0.0:$PORT"
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: DEBUG
+        value: "False"
+      - key: PYTHON_VERSION
+        value: "3.11.9"
