@@ -14,6 +14,7 @@ import MapaFerroviario from './pages/MapaFerroviario';
 import PersonalOperativo from './pages/PersonalOperativo';
 import GestionBajas from './pages/GestionBajas';
 import Placeholder from './pages/Placeholder';
+import VisorBitacoras from './pages/VisorBitacoras';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -39,6 +40,7 @@ function App() {
         <Route path="/gestion-bajas" element={<ProtectedRoute><GestionBajas /></ProtectedRoute>} />
         <Route path="/georreferencia-admin" element={<ProtectedRoute><Placeholder title="Georreferencia de Hitos" /></ProtectedRoute>} />
         <Route path="/carga-tripulacion" element={<ProtectedRoute><Placeholder title="Cargar Tripulación CSV" /></ProtectedRoute>} />
+        <Route path="/visor-bitacoras" element={<ProtectedRoute><VisorBitacoras /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>

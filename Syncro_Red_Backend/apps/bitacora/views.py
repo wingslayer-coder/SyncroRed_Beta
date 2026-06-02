@@ -15,6 +15,12 @@ class ReporteFinalViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_class = ReporteFinalFilter
 
+    def perform_create(self, serializer):
+        serializer.save(
+            usuario=self.request.user,
+            cargo=getattr(self.request.user, 'cargo', '')
+        )
+
     @decorators.action(detail=False, methods=['get'])
     def exportar_excel(self, request):
         fecha = request.query_params.get('fecha')

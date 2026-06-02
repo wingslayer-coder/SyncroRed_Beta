@@ -130,3 +130,32 @@ class ItinerarioEquipo(models.Model):
 
     def __str__(self):
         return f"{self.equipo} - {self.fecha}"
+
+
+class RutaEstacion(models.Model):
+    ruta_id = models.CharField(max_length=50)
+    estacion_nombre = models.CharField(max_length=100)
+    orden = models.IntegerField()
+
+    class Meta:
+        db_table = 'rutas_estaciones'
+        unique_together = ['ruta_id', 'orden']
+
+    def __str__(self):
+        return f"{self.ruta_id} [{self.orden}] - {self.estacion_nombre}"
+
+
+class ItinerarioMaestro(models.Model):
+    tren_num = models.CharField(max_length=20)
+    tipo_dia = models.CharField(max_length=10)
+    ruta_id = models.CharField(max_length=50)
+    estacion_nombre = models.CharField(max_length=100)
+    orden_estacion = models.IntegerField()
+    hora_programada = models.TimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'itinerario_maestro'
+        unique_together = ['tren_num', 'tipo_dia', 'estacion_nombre']
+
+    def __str__(self):
+        return f"Tren {self.tren_num} ({self.tipo_dia}) - {self.estacion_nombre}: {self.hora_programada}"

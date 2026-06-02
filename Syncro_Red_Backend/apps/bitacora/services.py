@@ -1,7 +1,6 @@
 import logging
 from datetime import datetime
-from apps.operaciones.models import ServicioActivo, RegistroEstacion
-from .datos import TRENES, RUTAS
+from apps.operaciones.models import ServicioActivo, RegistroEstacion, RutaEstacion, ItinerarioMaestro
 
 logger = logging.getLogger(__name__)
 
@@ -39,20 +38,22 @@ def generar_reporte_turno(fecha, usuario_nombre, rol):
                 tren_num_act = str(ser.tren_num).strip()
                 equipo_id_act = str(ser.equipo_id)
 
-                servicio_fijo = None
-                if tren_num_act in TRENES.get(dia_clave, {}):
-                    servicio_fijo = TRENES[dia_clave][tren_num_act]
-                else:
-                    for d in ["LV", "SAB", "DOM"]:
-                        if tren_num_act in TRENES.get(d, {}):
-                            servicio_fijo = TRENES[d][tren_num_act]
-                            break
+                itinerarios_db = ItinerarioMaestro.objects.filter(tren_num=tren_num_act, tipo_dia=dia_clave).order_by('orden_estacion')
+                if not itinerarios_db.exists():
+                    itinerarios_db = ItinerarioMaestro.objects.filter(tren_num=tren_num_act).order_by('orden_estacion')
 
-                if not servicio_fijo:
+                if not itinerarios_db.exists():
                     continue
 
-                estaciones_linea = RUTAS[servicio_fijo["ruta"]]
-                horarios_linea = servicio_fijo["horarios"]
+                ruta_id = itinerarios_db.first().ruta_id
+                
+                estaciones_ruta = RutaEstacion.objects.filter(ruta_id=ruta_id).order_by('orden')
+                estaciones_linea = [e.estacion_nombre for e in estaciones_ruta]
+                
+                horarios_linea = [None] * len(estaciones_linea)
+                for it in itinerarios_db:
+                    if it.hora_programada:
+                        horarios_linea[it.orden_estacion] = it.hora_programada
 
                 indices_validos = [idx for idx, h in enumerate(horarios_linea) if h is not None]
                 if not indices_validos:

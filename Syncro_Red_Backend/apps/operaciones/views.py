@@ -22,6 +22,24 @@ class ServicioActivoViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_class = ServicioActivoFilter
 
+    @decorators.action(detail=True, methods=['get'])
+    def pasadas(self, request, pk=None):
+        servicio = self.get_object()
+        registros = RegistroEstacion.objects.filter(
+            fecha=servicio.fecha,
+            tren_num=servicio.tren_num
+        ).order_by('timestamp')
+        data = [
+            {
+                'estacion': r.estacion_id,
+                'estado': r.estado,
+                'minutos_atraso': int(r.obs) if r.obs and r.obs.lstrip('-').isdigit() else 0,
+                'timestamp': r.timestamp.isoformat() if r.timestamp else None,
+            }
+            for r in registros
+        ]
+        return Response({'tren_num': servicio.tren_num, 'pasadas': data})
+
     @decorators.action(detail=True, methods=['post'])
     def ubicacion(self, request, pk=None):
         servicio = self.get_object()
@@ -71,7 +89,9 @@ class PautaDiariaView(APIView):
         if not fecha:
             return Response({'error': 'Parámetro fecha requerido (YYYY-MM-DD)'}, status=status.HTTP_400_BAD_REQUEST)
 
-        weekday = fecha.isoweekday()
+        import datetime as dt
+        fecha_obj = dt.date.fromisoformat(fecha)
+        weekday = fecha_obj.isoweekday()
         if weekday == 7:
             tipo_dia = 'DOM'
         elif weekday == 6:
@@ -92,6 +112,8 @@ class PautaDiariaView(APIView):
                     'ay_nombre': None,
                     'ay_rut': None,
                     'servicios': '---',
+                    'apertura_hora': '---',
+                    'apertura_lugar': '---',
                     'presentacion_hora': '---',
                     'presentacion_lugar': '---',
                     'cierre_hora': '---',
@@ -117,6 +139,8 @@ class PautaDiariaView(APIView):
             mt = maestro_map.get(num)
             if mt:
                 item['servicios'] = mt.servicios or '---'
+                item['apertura_hora'] = mt.apertura_hora or '---'
+                item['apertura_lugar'] = mt.apertura_lugar or '---'
                 item['presentacion_hora'] = mt.presentacion_hora or '---'
                 item['presentacion_lugar'] = mt.presentacion_lugar or '---'
                 item['cierre_hora'] = mt.cierre_hora or '---'
@@ -126,6 +150,12 @@ class PautaDiariaView(APIView):
         return Response({'fecha': fecha, 'tipo_dia': tipo_dia, 'turnos': resultado})
 
     def post(self, request):
+        ROLES_ASIGNACION = {'IL', 'INSPECTOR DE LINEA', 'SL', 'SUPERVISOR DE LINEA',
+                            'JEFE DE OPERACIONES', 'ADMIN', 'GERENTE', 'GERENCIA'}
+        cargo_usuario = (getattr(request.user, 'cargo', '') or '').upper()
+        if cargo_usuario not in ROLES_ASIGNACION:
+            return Response({'error': 'No tiene permisos para asignar tripulación'}, status=status.HTTP_403_FORBIDDEN)
+
         fecha = request.data.get('fecha')
         rut = request.data.get('rut')
         num_turno = request.data.get('num_turno')
@@ -145,6 +175,47 @@ class PautaDiariaView(APIView):
             )
 
         return Response({'ok': True, 'fecha': fecha, 'rut': rut, 'num_turno': num_turno})
+
+
+class MiTurnoView(APIView):
+    """Devuelve el turno asignado al usuario autenticado para la fecha dada."""
+
+    def get(self, request):
+        fecha = request.query_params.get('fecha')
+        if not fecha:
+            return Response({'error': 'Parámetro fecha requerido'}, status=400)
+
+        try:
+            grafico = GraficoMensual.objects.select_related('rut').get(fecha=fecha, rut=request.user)
+        except GraficoMensual.DoesNotExist:
+            return Response({'turno': None, 'mensaje': 'Sin turno asignado para esta fecha'})
+
+        num_turno = grafico.num_turno.strip()
+
+        weekday = __import__('datetime').date.fromisoformat(fecha).isoweekday()
+        tipo_dia = 'DOM' if weekday == 7 else 'SAB' if weekday == 6 else 'LV'
+
+        try:
+            mt = MaestroTurno.objects.get(num_turno=num_turno, tipo_dia=tipo_dia)
+            return Response({
+                'turno': num_turno,
+                'tipo_dia': tipo_dia,
+                'servicios': mt.servicios or '---',
+                'presentacion_hora': mt.presentacion_hora or '---',
+                'presentacion_lugar': mt.presentacion_lugar or '---',
+                'cierre_hora': mt.cierre_hora or '---',
+                'cierre_lugar': mt.cierre_lugar or '---',
+            })
+        except MaestroTurno.DoesNotExist:
+            return Response({
+                'turno': num_turno,
+                'tipo_dia': tipo_dia,
+                'servicios': '---',
+                'presentacion_hora': '---',
+                'presentacion_lugar': '---',
+                'cierre_hora': '---',
+                'cierre_lugar': '---',
+            })
 
 
 class TripulacionDisponibleView(APIView):

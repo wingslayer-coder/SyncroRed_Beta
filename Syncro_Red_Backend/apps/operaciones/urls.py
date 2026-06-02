@@ -12,6 +12,7 @@ router.register(r'itinerario-equipos', views.ItinerarioEquipoViewSet, basename='
 
 urlpatterns = router.urls + [
     path('pauta-diaria/', views.PautaDiariaView.as_view(), name='pauta-diaria'),
+    path('mi-turno/', views.MiTurnoView.as_view(), name='mi-turno'),
     path('tripulacion-disponible/', views.TripulacionDisponibleView.as_view(), name='tripulacion-disponible'),
     path('dashboard/', views.DashboardView.as_view(), name='dashboard'),
     path('eventos-mapa/', views.EventosMapaView.as_view(), name='eventos-mapa'),

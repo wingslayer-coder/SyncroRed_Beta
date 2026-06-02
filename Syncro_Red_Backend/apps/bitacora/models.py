@@ -6,9 +6,14 @@ class ReporteFinal(models.Model):
     fecha = models.DateField()
     usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE, related_name='reportes_finales', to_field='rut', db_column='usuario')
     cargo = models.CharField(max_length=50, blank=True)
-    resumen_texto = models.TextField(blank=True)
-    reporte_texto = models.TextField(blank=True)
+    resumen_texto = models.TextField(blank=True)       # reporte operativo (tripulación + jefatura)
+    reporte_detallado = models.TextField(blank=True)   # reporte auditoría (solo jefatura / admin)
+    reporte_texto = models.TextField(blank=True)       # campo legado
     justificacion_cierre = models.TextField(blank=True)
+    maquinista = models.CharField(max_length=150, blank=True)
+    ayudante   = models.CharField(max_length=150, blank=True)
+    hash_simple = models.CharField(max_length=64, blank=True)    # SHA-256 reporte operativo
+    hash_detallado = models.CharField(max_length=64, blank=True) # SHA-256 reporte auditoría
     creado_en = models.DateTimeField(auto_now_add=True)
 
     class Meta:

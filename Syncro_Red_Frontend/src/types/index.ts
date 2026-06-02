@@ -4,6 +4,7 @@ export interface User {
   apellido: string;
   cargo: string;
   is_active: boolean;
+  must_change_password?: boolean;
 }
 
 export interface PautaDiariaItem {
@@ -13,6 +14,8 @@ export interface PautaDiariaItem {
   mq_rut: string | null;
   ay_nombre: string | null;
   ay_rut: string | null;
+  apertura_hora: string;
+  apertura_lugar: string;
   presentacion_hora: string;
   presentacion_lugar: string;
   cierre_hora: string;

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import client from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import type { PautaDiariaItem, DisponibleItem } from '../types';
 import './PautaDiaria.css';
 import {
@@ -10,23 +11,41 @@ import {
   UserPlus,
   X,
   Clock,
-  MapPin,
-  
   Info,
   TrendingUp,
   UserCheck,
   UserX,
   Loader2,
   ArrowLeft,
+  Train,
+  AlertCircle,
 } from 'lucide-react';
 
+interface MiTurno {
+  turno: string;
+  tipo_dia: string;
+  servicios: string;
+  presentacion_hora: string;
+  presentacion_lugar: string;
+  cierre_hora: string;
+  cierre_lugar: string;
+}
+
 export default function PautaDiaria() {
+  const { user } = useAuth();
   const [fecha, setFecha] = useState(() => new Date().toISOString().split('T')[0]);
   const [turnos, setTurnos] = useState<PautaDiariaItem[]>([]);
   const [tipoDia, setTipoDia] = useState('');
   const [loading, setLoading] = useState(false);
   const [modal, setModal] = useState<{ turno: string; campo: 'mq' | 'ay' } | null>(null);
   const [disponibles, setDisponibles] = useState<DisponibleItem[]>([]);
+  const [miTurno, setMiTurno] = useState<MiTurno | null>(null);
+  const [miTurnoLoading, setMiTurnoLoading] = useState(false);
+
+  const esTripulacion = ['MAQUINISTA', 'AYUDANTE'].includes((user?.cargo || '').toUpperCase());
+  const cargo = (user?.cargo || '').toUpperCase();
+  const puedeAsignar = ['IL', 'INSPECTOR DE LINEA', 'SL', 'SUPERVISOR DE LINEA',
+    'JEFE DE OPERACIONES', 'ADMIN', 'GERENTE', 'GERENCIA'].includes(cargo);
 
   const fetchPauta = () => {
     setLoading(true);
@@ -42,8 +61,18 @@ export default function PautaDiaria() {
       .finally(() => setLoading(false));
   };
 
+  const fetchMiTurno = () => {
+    if (!esTripulacion) return;
+    setMiTurnoLoading(true);
+    client.get(`/operaciones/mi-turno/?fecha=${fecha}`)
+      .then((res) => setMiTurno(res.data.turno ? res.data : null))
+      .catch(() => setMiTurno(null))
+      .finally(() => setMiTurnoLoading(false));
+  };
+
   useEffect(() => {
     fetchPauta();
+    fetchMiTurno();
   }, [fecha]);
 
   const openModal = (turno: string, campo: 'mq' | 'ay') => {
@@ -129,6 +158,77 @@ export default function PautaDiaria() {
           {obtenerFechaFormateada(fecha)}
         </p>
       </div>
+
+      {/* BANNER MI TURNO — solo para maquinistas y ayudantes */}
+      {esTripulacion && (
+        <div className="mb-6">
+          {miTurnoLoading ? (
+            <div className="flex items-center gap-3 bg-white border border-gray-200 rounded-2xl px-5 py-4 shadow-sm">
+              <Loader2 className="w-5 h-5 text-azul animate-spin" />
+              <span className="text-sm text-gray-500 font-medium">Consultando tu turno...</span>
+            </div>
+          ) : miTurno ? (
+            <div className="bg-gradient-to-r from-azul via-azul to-[#003a8c] rounded-2xl shadow-md overflow-hidden">
+              <div className="px-6 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
+                {/* Icono + título */}
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/15">
+                    <Train className="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-white/70 text-xs font-semibold uppercase tracking-wider">Tu turno hoy</p>
+                    <p className="text-white text-2xl font-black leading-tight">Turno {miTurno.turno}</p>
+                  </div>
+                </div>
+
+                <div className="h-px sm:h-10 sm:w-px bg-white/20 flex-shrink-0" />
+
+                {/* Servicios */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-1.5">Servicios asignados</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(miTurno.servicios || '').split(/[\s,;]+/).filter(Boolean).map((srv, i) => (
+                      <span key={i} className="inline-block px-2.5 py-0.5 rounded-md text-xs font-bold bg-white/20 text-white border border-white/10">
+                        {srv}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="h-px sm:h-10 sm:w-px bg-white/20 flex-shrink-0" />
+
+                {/* Presentación */}
+                <div className="flex-shrink-0 text-sm">
+                  <div className="flex items-center gap-1.5 text-white/70 text-xs font-semibold uppercase tracking-wider mb-1">
+                    <Clock className="h-3.5 w-3.5" /> Presentación
+                  </div>
+                  <p className="text-white font-bold">{miTurno.presentacion_hora}</p>
+                  <p className="text-white/60 text-xs">{miTurno.presentacion_lugar}</p>
+                </div>
+
+                <div className="h-px sm:h-10 sm:w-px bg-white/20 flex-shrink-0" />
+
+                {/* Cierre */}
+                <div className="flex-shrink-0 text-sm">
+                  <div className="flex items-center gap-1.5 text-white/70 text-xs font-semibold uppercase tracking-wider mb-1">
+                    <Clock className="h-3.5 w-3.5" /> Cierre
+                  </div>
+                  <p className="text-white font-bold">{miTurno.cierre_hora}</p>
+                  <p className="text-white/60 text-xs">{miTurno.cierre_lugar}</p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4 shadow-sm">
+              <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-bold text-amber-800">Sin turno asignado para esta fecha</p>
+                <p className="text-xs text-amber-600">Contacta a tu jefatura si crees que hay un error.</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Date controller centered */}
       <div className="flex justify-center mb-6">
@@ -218,22 +318,32 @@ export default function PautaDiaria() {
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-150 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
+          <div>
+            <table className="w-full border-collapse table-fixed">
+              <colgroup>
+                <col style={{width:'6%'}} />
+                <col style={{width:'20%'}} />
+                <col style={{width:'20%'}} />
+                <col style={{width:'18%'}} />
+                <col style={{width:'12%'}} />
+                <col style={{width:'12%'}} />
+                <col style={{width:'12%'}} />
+              </colgroup>
               <thead>
                 <tr className="bg-azul text-white border-b border-azul/20">
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center">Turno</th>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center">Servicios (Trenes)</th>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center">Maquinista (MQ)</th>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center">Ayudante (AY)</th>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center">Lugar & Hora Presentación</th>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center">Lugar & Hora Cierre</th>
+                  <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-center">Turno</th>
+                  <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-center">Maquinista</th>
+                  <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-center">Ayudante</th>
+                  <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-center">Servicios</th>
+                  <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-center">Apertura EZ</th>
+                  <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-center">Presentación</th>
+                  <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-center">Cierre</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {turnos.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-6 py-16 text-center">
+                    <td colSpan={7} className="px-6 py-16 text-center">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <Info className="w-8 h-8 text-gray-300" />
                         <span className="text-gray-400 font-medium text-sm">Sin turnos registrados para esta fecha en PostgreSQL</span>
@@ -242,21 +352,82 @@ export default function PautaDiaria() {
                   </tr>
                 )}
                 {turnos.map((t) => (
-                  <tr key={t.turno} className="hover:bg-gray-50/70 transition-colors">
+                  <tr
+                    key={t.turno}
+                    className={`transition-colors ${
+                      miTurno && t.turno === miTurno.turno
+                        ? 'bg-azul/5 border-l-4 border-l-azul'
+                        : 'hover:bg-gray-50/70'
+                    }`}
+                  >
                     {/* Turno Badge */}
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-azul/10 text-azul border border-azul/5">
+                    <td className="px-3 py-3 whitespace-nowrap text-center">
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-azul/10 text-azul border border-azul/5">
                         {t.turno}
                       </span>
                     </td>
 
+                    {/* Maquinista Cell */}
+                    <td className="px-3 py-3 text-center">
+                      {t.mq_nombre ? (
+                        <div className="flex items-center gap-2 justify-center">
+                          <div className="w-7 h-7 rounded-full bg-azul text-white flex items-center justify-center font-bold text-[10px] shadow-sm flex-shrink-0">
+                            {obtenerIniciales(t.mq_nombre)}
+                          </div>
+                          <div className="text-left min-w-0">
+                            <div className="text-xs font-bold text-gray-800 leading-tight truncate">{t.mq_nombre}</div>
+                            <div className="text-[10px] text-gray-400">{t.mq_rut || '—'}</div>
+                          </div>
+                        </div>
+                      ) : puedeAsignar ? (
+                        <div className="flex justify-center">
+                          <button
+                            onClick={() => openModal(t.turno, 'mq')}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-dashed border-azul/30 hover:border-rojo text-[10px] font-bold text-azul hover:text-rojo hover:bg-rojo/5 transition-all"
+                          >
+                            <UserPlus className="w-3 h-3" />
+                            <span>Asignar</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-gray-300">—</span>
+                      )}
+                    </td>
+
+                    {/* Ayudante Cell */}
+                    <td className="px-3 py-3 text-center">
+                      {t.ay_nombre ? (
+                        <div className="flex items-center gap-2 justify-center">
+                          <div className="w-7 h-7 rounded-full bg-rojo text-white flex items-center justify-center font-bold text-[10px] shadow-sm flex-shrink-0">
+                            {obtenerIniciales(t.ay_nombre)}
+                          </div>
+                          <div className="text-left min-w-0">
+                            <div className="text-xs font-bold text-gray-800 leading-tight truncate">{t.ay_nombre}</div>
+                            <div className="text-[10px] text-gray-400">{t.ay_rut || '—'}</div>
+                          </div>
+                        </div>
+                      ) : puedeAsignar ? (
+                        <div className="flex justify-center">
+                          <button
+                            onClick={() => openModal(t.turno, 'ay')}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-dashed border-azul/30 hover:border-rojo text-[10px] font-bold text-azul hover:text-rojo hover:bg-rojo/5 transition-all"
+                          >
+                            <UserPlus className="w-3 h-3" />
+                            <span>Asignar</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-gray-300">—</span>
+                      )}
+                    </td>
+
                     {/* Services Chips */}
-                    <td className="px-6 py-4">
-                      <div className="flex flex-wrap gap-1.5 justify-center max-w-[220px] mx-auto">
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap gap-1 justify-center">
                         {(t.servicios || '').split(/[\s,;]+/).filter(Boolean).map((srv, idx) => (
                           <span
                             key={idx}
-                            className="inline-block px-2.5 py-0.5 rounded-md text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-200"
+                            className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-azul/10 text-azul border border-azul/15 whitespace-nowrap"
                           >
                             {srv}
                           </span>
@@ -264,81 +435,36 @@ export default function PautaDiaria() {
                       </div>
                     </td>
 
-                    {/* Maquinista Cell */}
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      {t.mq_nombre ? (
-                        <div className="flex items-center gap-2.5 justify-center">
-                          <div className="w-8 h-8 rounded-full bg-azul text-white flex items-center justify-center font-bold text-xs shadow-sm">
-                            {obtenerIniciales(t.mq_nombre)}
-                          </div>
-                          <div className="text-left">
-                            <div className="text-sm font-bold text-gray-800 leading-tight">{t.mq_nombre}</div>
-                            <div className="text-[10px] text-gray-400">RUT: {t.mq_rut || '—'}</div>
-                          </div>
+                    {/* Apertura Cell */}
+                    <td className="px-2 py-3 text-center">
+                      <div className="flex flex-col gap-0.5 items-center justify-center">
+                        <div className="flex items-center gap-1 text-xs font-bold text-azul">
+                          <Clock className="w-3 h-3" />
+                          <span>{t.apertura_hora || '—'}</span>
                         </div>
-                      ) : (
-                        <div className="flex justify-center">
-                          <button
-                            onClick={() => openModal(t.turno, 'mq')}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-dashed border-azul/30 hover:border-rojo text-xs font-bold text-azul hover:text-rojo hover:bg-rojo/5 transition-all shadow-sm"
-                          >
-                            <UserPlus className="w-3.5 h-3.5" />
-                            <span>Asignar MQ</span>
-                          </button>
-                        </div>
-                      )}
-                    </td>
-
-                    {/* Ayudante Cell */}
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      {t.ay_nombre ? (
-                        <div className="flex items-center gap-2.5 justify-center">
-                          <div className="w-8 h-8 rounded-full bg-rojo text-white flex items-center justify-center font-bold text-xs shadow-sm">
-                            {obtenerIniciales(t.ay_nombre)}
-                          </div>
-                          <div className="text-left">
-                            <div className="text-sm font-bold text-gray-800 leading-tight">{t.ay_nombre}</div>
-                            <div className="text-[10px] text-gray-400">RUT: {t.ay_rut || '—'}</div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex justify-center">
-                          <button
-                            onClick={() => openModal(t.turno, 'ay')}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-dashed border-azul/30 hover:border-rojo text-xs font-bold text-azul hover:text-rojo hover:bg-rojo/5 transition-all shadow-sm"
-                          >
-                            <UserPlus className="w-3.5 h-3.5" />
-                            <span>Asignar AY</span>
-                          </button>
-                        </div>
-                      )}
+                        <div className="text-[10px] text-gray-500 font-medium">{t.apertura_lugar || '—'}</div>
+                      </div>
                     </td>
 
                     {/* Presentacion Cell */}
-                    <td className="px-6 py-4 text-center">
+                    <td className="px-2 py-3 text-center">
                       <div className="flex flex-col gap-0.5 items-center justify-center">
                         <div className="flex items-center gap-1 text-xs font-bold text-gray-700">
-                          <Clock className="w-3.5 h-3.5 text-rojo" />
+                          <Clock className="w-3 h-3 text-rojo" />
                           <span>{t.presentacion_hora || '—'}</span>
                         </div>
-                        <div className="flex items-center gap-1 text-[11px] text-gray-500 font-medium">
-                          <MapPin className="w-3 h-3 text-gray-400" />
-                          <span>{t.presentacion_lugar || '—'}</span>
-                        </div>
+                        <div className="text-[10px] text-gray-500 font-medium">{t.presentacion_lugar || '—'}</div>
                       </div>
                     </td>
 
                     {/* Cierre Cell */}
-                    <td className="px-6 py-4 text-center">
+                    <td className="px-2 py-3 text-center">
                       <div className="flex flex-col gap-0.5 items-center justify-center">
                         <div className="flex items-center gap-1 text-xs font-bold text-gray-700">
-                          <Clock className="w-3.5 h-3.5 text-rojo" />
+                          <Clock className="w-3 h-3 text-rojo" />
                           <span>{t.cierre_hora || '—'}</span>
                         </div>
-                        <div className="flex items-center gap-1 text-[11px] text-gray-500 font-medium">
-                          <MapPin className="w-3 h-3 text-gray-400" />
-                          <span>{t.cierre_lugar || '—'}</span>
-                        </div>
+                        <div className="text-[10px] text-gray-500 font-medium">{t.cierre_lugar || '—'}</div>
                       </div>
                     </td>
                   </tr>

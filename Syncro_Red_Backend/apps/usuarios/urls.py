@@ -9,4 +9,10 @@ router.register(r'ausencias', views.AusenciaTemporalViewSet, basename='ausencia'
 
 urlpatterns = router.urls + [
     path('change-password/', views.ChangePasswordView.as_view(), name='change_password'),
+    path('asistencia/abrir/', views.AbrirTurnoView.as_view(), name='abrir-turno'),
+    path('asistencia/cerrar/', views.CerrarTurnoView.as_view(), name='cerrar-turno'),
+    path('asistencia/mi-registro/', views.MiAsistenciaView.as_view(), name='mi-asistencia'),
+    path('asistencia/pendientes/', views.PendientesAutorizacionView.as_view(), name='pendientes-autorizacion'),
+    path('asistencia/consolidado/', views.ConsolidadoAsistenciaView.as_view(), name='consolidado'),
+    path('asistencia/editar/<int:pk>/', views.EditarHorasAsistenciaView.as_view(), name='editar-horas'),
 ]

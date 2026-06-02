@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+
 .pauta-container {
   max-width: 1100px;
   width: 100%;
@@ -8,6 +10,7 @@
   border-radius: 16px;
   box-shadow: 0 12px 40px rgba(0, 31, 77, 0.06);
   border: 1px solid rgba(0, 31, 77, 0.08);
+  font-family: 'Manrope', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   animation: fadeIn 0.3s ease-out;
 }
 
@@ -17,7 +20,7 @@
 }
 
 .pauta-header h2 {
-  color: #001f4d;
+  color: #002A5C;
   font-size: 30px;
   font-weight: 800;
   margin: 0;
@@ -29,7 +32,7 @@
   display: block;
   width: 60px;
   height: 4px;
-  background-color: #cc0000; /* Rojo EFE */
+  background-color: #E31837; /* Rojo EFE */
   margin: 12px auto 0 auto;
   border-radius: 2px;
 }

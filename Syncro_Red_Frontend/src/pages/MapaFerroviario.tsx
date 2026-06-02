@@ -20,7 +20,7 @@ const redIcon = new L.Icon({
   iconSize: [25, 41],
   iconAnchor: [12, 41],
   popupAnchor: [1, -34],
-  shadowSize: [41, 41]
+  shadowSize: [41, 41],
 });
 
 const orangeIcon = new L.Icon({
@@ -29,13 +29,13 @@ const orangeIcon = new L.Icon({
   iconSize: [25, 41],
   iconAnchor: [12, 41],
   popupAnchor: [1, -34],
-  shadowSize: [41, 41]
+  shadowSize: [41, 41],
 });
 
 export default function MapaFerroviario() {
   const [eventos, setEventos] = useState<EventoMapa[]>([]);
   const [loading, setLoading] = useState(true);
-  
+
   const hoy = new Date().toISOString().split('T')[0];
   const ayer = new Date(Date.now() - 86400000 * 2).toISOString().split('T')[0];
 
@@ -45,7 +45,7 @@ export default function MapaFerroviario() {
       const res = await client.get(`/operaciones/eventos-mapa/?fecha_desde=${ayer}&fecha_hasta=${hoy}`);
       setEventos(res.data.eventos || []);
     } catch (err) {
-      console.error("Error fetching map events:", err);
+      console.error('Error fetching map events:', err);
     } finally {
       setLoading(false);
     }
@@ -57,21 +57,27 @@ export default function MapaFerroviario() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto h-[calc(100vh-140px)] flex flex-col">
+      {/* Encabezado */}
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-azul flex items-center gap-2">
-          <Map className="w-6 h-6 text-rojo" />
-          Mapa Ferroviario en Vivo
-        </h2>
-        <button 
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-azul/10">
+            <Map className="h-6 w-6 text-rojo" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-extrabold text-azul leading-tight">Mapa Ferroviario en Vivo</h2>
+            <p className="text-sm text-gray-400">Eventos georreferenciados de la red</p>
+          </div>
+        </div>
+        <button
           onClick={cargarEventos}
-          className="bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-50 flex items-center gap-2 text-sm font-bold shadow-sm"
+          className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
         >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Actualizar
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Actualizar
         </button>
       </div>
 
-      <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden relative z-0">
-        <MapContainer center={[-36.827, -73.050]} zoom={11} className="w-full h-full">
+      <div className="relative z-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <MapContainer center={[-36.827, -73.05]} zoom={11} className="h-full w-full">
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -79,17 +85,17 @@ export default function MapaFerroviario() {
           {eventos.map((ev, idx) => {
             if (ev.lat && ev.lon) {
               return (
-                <Marker 
-                  key={idx} 
+                <Marker
+                  key={idx}
                   position={[ev.lat, ev.lon]}
                   icon={ev.tipo === 'Emergencia' ? redIcon : orangeIcon}
                 >
                   <Popup>
                     <div className="p-1">
-                      <div className="font-bold border-b pb-1 mb-1">{ev.tipo} - Tren {ev.tren}</div>
+                      <div className="mb-1 border-b pb-1 font-bold">{ev.tipo} - Tren {ev.tren}</div>
                       <div className="text-sm"><b>Evento:</b> {ev.evento}</div>
                       <div className="text-sm"><b>Estado:</b> {ev.estado}</div>
-                      <div className="text-xs text-gray-500 mt-2">{ev.fecha_hora}</div>
+                      <div className="mt-2 text-xs text-gray-500">{ev.fecha_hora}</div>
                     </div>
                   </Popup>
                 </Marker>
@@ -98,16 +104,18 @@ export default function MapaFerroviario() {
             return null;
           })}
         </MapContainer>
-        
+
         {/* Leyenda flotante */}
-        <div className="absolute bottom-6 left-6 z-[1000] bg-white/90 backdrop-blur-sm p-3 rounded-lg shadow-lg border border-gray-200">
-          <h4 className="font-bold text-xs mb-2 text-gray-700 uppercase tracking-wide">Leyenda</h4>
+        <div className="absolute bottom-6 left-6 z-[1000] rounded-xl border border-gray-200 bg-white/90 p-4 shadow-lg backdrop-blur-sm">
+          <h4 className="mb-2.5 border-b border-gray-100 pb-1.5 text-xs font-bold uppercase tracking-wide text-azul">
+            Leyenda
+          </h4>
           <div className="flex flex-col gap-2 text-sm">
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-red-600"></div> Emergencia Activa
+              <span className="h-3 w-3 rounded-full bg-red-600 ring-2 ring-red-200" /> Emergencia Activa
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-orange-500"></div> Incidencia Ferroviaria
+              <span className="h-3 w-3 rounded-full bg-orange-500 ring-2 ring-orange-200" /> Incidencia Ferroviaria
             </div>
           </div>
         </div>
