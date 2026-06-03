@@ -1,11 +1,20 @@
-import { useState, useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { useState, useEffect, useRef, Fragment } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline, CircleMarker, Tooltip } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import 'leaflet.heat';
 import { useAlertas } from '../context/AlertasContext';
+import client from '../api/client';
 import type { EventoMapa } from '../types';
 import { Map, Layers, MapPin } from 'lucide-react';
+
+interface LineaTrazado {
+  linea: string;
+  nombre: string;
+  color: string;
+  puntos: [number, number][];
+  estaciones: { nombre: string; lat: number; lon: number }[];
+}
 
 // Arreglo para los iconos de leaflet
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -82,6 +91,14 @@ function HeatmapLayer({ data }: { data: EventoMapa[] }) {
 export default function MapaFerroviario() {
   const { eventos } = useAlertas();
   const [viewMode, setViewMode] = useState<'markers' | 'heatmap'>('markers');
+  const [trazado, setTrazado] = useState<LineaTrazado[]>([]);
+  const [verTrazado, setVerTrazado] = useState(true);
+
+  useEffect(() => {
+    client.get('/prevenciones/trazado/')
+      .then((res) => setTrazado(res.data.lineas || []))
+      .catch(() => setTrazado([]));
+  }, []);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto h-[calc(100vh-140px)] flex flex-col">
@@ -116,6 +133,16 @@ export default function MapaFerroviario() {
             <Layers className="h-4 w-4" /> Mapa de Calor
           </button>
         </div>
+
+        <button
+          onClick={() => setVerTrazado((v) => !v)}
+          className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold transition-colors ${
+            verTrazado ? 'border-azul bg-azul/5 text-azul' : 'border-gray-200 bg-white text-gray-400'
+          }`}
+          title="Mostrar/ocultar trazado de vías"
+        >
+          <Map className="h-4 w-4" /> Vías
+        </button>
       </div>
 
       <div className="relative z-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
@@ -124,7 +151,26 @@ export default function MapaFerroviario() {
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          
+
+          {/* ── Trazado de vías + estaciones ── */}
+          {verTrazado && trazado.map((ln) => (
+            <Fragment key={ln.linea}>
+              <Polyline positions={ln.puntos} pathOptions={{ color: ln.color, weight: 4, opacity: 0.85 }} />
+              {ln.estaciones.map((e) => (
+                <CircleMarker
+                  key={`${ln.linea}-${e.nombre}`}
+                  center={[e.lat, e.lon]}
+                  radius={5}
+                  pathOptions={{ color: '#ffffff', weight: 2, fillColor: ln.color, fillOpacity: 1 }}
+                >
+                  <Tooltip direction="top" offset={[0, -4]}>
+                    <span className="font-bold">{e.nombre}</span> · {ln.linea}
+                  </Tooltip>
+                </CircleMarker>
+              ))}
+            </Fragment>
+          ))}
+
           {viewMode === 'heatmap' && <HeatmapLayer data={eventos} />}
           
           {viewMode === 'markers' && eventos.map((ev, idx) => {
@@ -168,6 +214,12 @@ export default function MapaFerroviario() {
             </div>
             <div className="flex items-center gap-2">
               <span className="h-3 w-3 rounded-full bg-yellow-400 ring-2 ring-yellow-200" /> Incidencia Ferroviaria
+            </div>
+            <div className="mt-1 flex items-center gap-2 border-t border-gray-100 pt-2">
+              <span className="h-1 w-4 rounded" style={{ background: '#1f4e79' }} /> L1 · San Rosendo–Talcahuano
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="h-1 w-4 rounded" style={{ background: '#c0392b' }} /> L2 · Concepción–Coronel
             </div>
           </div>
         </div>

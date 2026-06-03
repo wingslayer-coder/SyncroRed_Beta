@@ -130,7 +130,11 @@ export default function Turnos() {
       const all: GraficoMensual[] = res.data.results || res.data;
       // Filtro robusto por string (evita corrimiento de zona horaria con new Date)
       const prefijo = `${anio}-${String(mes).padStart(2, '0')}`;
-      const filtrados = all.filter((g) => (g.fecha || '').startsWith(prefijo));
+      let filtrados = all.filter((g) => (g.fecha || '').startsWith(prefijo));
+      // La tripulación ve solo sus propios turnos; jefatura/admin ven todos (son gestores).
+      if (!esJefatura) {
+        filtrados = filtrados.filter((g) => (typeof g.rut === 'object' ? g.rut.rut : g.rut) === user?.rut);
+      }
       setGraficos(filtrados);
     } catch (err) {
       console.error(err);

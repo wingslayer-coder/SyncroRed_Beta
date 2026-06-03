@@ -1,16 +1,15 @@
 import { useAuth } from '../context/AuthContext';
 import CambiarPasswordModal from './CambiarPasswordModal';
 import {
-  LogOut, Train, LayoutDashboard, ClipboardList,
-  Radio, BookOpen, Map, UserCheck, CalendarDays, Database,
-  Users, UserMinus, MapPin, Upload, ChevronLeft, Bell, KeyRound, FileText,
-  ShieldAlert, X, TrainTrack
+  LogOut, Train, LayoutDashboard, ChevronLeft, Bell, KeyRound,
+  ShieldAlert, X
 } from 'lucide-react';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, Fragment } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAlertas } from '../context/AlertasContext';
 import client from '../api/client';
 import type { EventoMapa } from '../types';
+import { getNavItems, SECTION_ORDER } from '../navItems';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
@@ -25,6 +24,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const rolUpper = (user?.cargo || '').toUpperCase();
   const esTripulacion = rolUpper === 'MAQUINISTA' || rolUpper === 'AYUDANTE';
+  const navItemsRol = getNavItems(user?.cargo);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -80,12 +80,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       alert('No se pudo marcar la emergencia como controlada.');
     }
   };
-
-  const rol = (user?.cargo || '').toUpperCase();
-  const esGerencia = rol === 'GERENTE' || rol === 'GERENCIA';
-  const esAdmin = rol === 'ADMIN';
-  const esJefeServicio = rol === 'JEFE SERVICIO' || rol === 'JEFE DE SERVICIO';
-  const esJefatura = esAdmin || rol === 'IL' || rol === 'INSPECTOR DE LINEA' || rol === 'JEFE DE OPERACIONES' || rol === 'SL' || rol === 'SUPERVISOR DE LINEA';
 
   const navItem = (path: string, label: string, icon: React.ReactNode) => {
     const active = location.pathname === path;
@@ -160,50 +154,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             )}
           </div>
 
-          {/* ── Navigation ── */}
+          {/* ── Navigation (misma fuente que el menú principal) ── */}
           <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto scrollbar-thin">
             {sectionLabel('Principal')}
             {navItem('/menu', 'Menú Principal', <LayoutDashboard className="h-4 w-4" />)}
 
-            {(esGerencia || esAdmin) && (
-              <>
-                {sectionLabel('Gerencia')}
-                {navItem('/dashboard', 'Dashboard Gerencial', <LayoutDashboard className="h-4 w-4" />)}
-              </>
-            )}
-
-            {!esGerencia && sectionLabel('Operaciones')}
-            {!esGerencia && navItem('/pauta-diaria', 'Pauta Diaria', <ClipboardList className="h-4 w-4" />)}
-            {esJefeServicio && navItem('/jefe-servicio', 'Consola de Tráfico', <Radio className="h-4 w-4" />)}
-            {esJefeServicio && navItem('/historicos', 'Históricos', <BookOpen className="h-4 w-4" />)}
-
-            {!esGerencia && !esJefeServicio && (
-              <>
-                {navItem('/bitacora', 'Servicios en curso', <BookOpen className="h-4 w-4" />)}
-                {navItem('/mapa-ferroviario', 'Mapa Ferroviario', <Map className="h-4 w-4" />)}
-                {navItem('/asistencia', 'Asistencia', <UserCheck className="h-4 w-4" />)}
-                {navItem('/alistacion', 'Mi Alistación', <FileText className="h-4 w-4" />)}
-                {navItem('/turnos', 'Gráfico Tripulación', <CalendarDays className="h-4 w-4" />)}
-              </>
-            )}
-
-            {esJefatura && !esJefeServicio && (
-              <>
-                {sectionLabel('Administración')}
-                {navItem('/visor-bd', 'Base de Datos', <Database className="h-4 w-4" />)}
-                {navItem('/personal-operativo', 'Personal Operativo', <Users className="h-4 w-4" />)}
-                {navItem('/gestion-bajas', 'Gestión de Bajas', <UserMinus className="h-4 w-4" />)}
-                {navItem('/prevenciones', 'Prevenciones de Vía', <TrainTrack className="h-4 w-4" />)}
-              </>
-            )}
-
-            {esAdmin && (
-              <>
-                {sectionLabel('Sistema')}
-                {navItem('/georreferencia-admin', 'Georreferencia Hitos', <MapPin className="h-4 w-4" />)}
-                {navItem('/carga-tripulacion', 'Cargar Tripulación', <Upload className="h-4 w-4" />)}
-              </>
-            )}
+            {SECTION_ORDER.map((sec) => {
+              const its = navItemsRol.filter((i) => i.section === sec);
+              if (its.length === 0) return null;
+              return (
+                <Fragment key={sec}>
+                  {sectionLabel(sec)}
+                  {its.map((i) => navItem(i.to, i.label, <i.Icon className="h-4 w-4" />))}
+                </Fragment>
+              );
+            })}
           </nav>
 
           {/* ── User section ── */}

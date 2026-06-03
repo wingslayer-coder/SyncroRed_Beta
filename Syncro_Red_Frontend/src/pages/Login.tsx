@@ -48,7 +48,14 @@ export default function Login() {
       login(user, token);
       navigate('/menu', { replace: true });
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Credenciales incorrectas o RUT no registrado.');
+      if (err.response) {
+        // El servidor respondió (ej. 401) → credenciales inválidas
+        setError(err.response.data?.error || 'Credenciales incorrectas o RUT no registrado.');
+      } else {
+        // No hubo respuesta → no se pudo conectar al servidor (red/firewall/backend caído)
+        setError(`No se pudo conectar al servidor (${client.defaults.baseURL}). ` +
+          'Verifica que el backend esté corriendo y accesible en la red.');
+      }
     } finally {
       setLoading(false);
     }

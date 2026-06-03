@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import client from '../api/client';
-import { TrainTrack, Upload, RefreshCw, Loader2 } from 'lucide-react';
+import { TrainTrack, Upload, RefreshCw, Loader2, Trash2 } from 'lucide-react';
 
 interface Prevencion {
   id: number;
@@ -20,6 +20,7 @@ export default function Prevenciones() {
   const [prevenciones, setPrevenciones] = useState<Prevencion[]>([]);
   const [loading, setLoading] = useState(true);
   const [subiendo, setSubiendo] = useState(false);
+  const [borrando, setBorrando] = useState(false);
 
   const cargar = () => {
     setLoading(true);
@@ -50,6 +51,20 @@ export default function Prevenciones() {
     }
   };
 
+  const borrarTodas = async () => {
+    if (!confirm(`¿Borrar las ${prevenciones.length} prevenciones actuales? Podrás cargar un nuevo boletín después.`)) return;
+    setBorrando(true);
+    try {
+      const res = await client.post('/prevenciones/prevenciones/eliminar_todas/');
+      alert(`Prevenciones eliminadas: ${res.data.eliminadas}.`);
+      cargar();
+    } catch (err: any) {
+      alert('Error al borrar: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setBorrando(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between">
@@ -65,6 +80,15 @@ export default function Prevenciones() {
         <div className="flex items-center gap-2">
           <button onClick={cargar} className="rounded-lg border border-gray-200 bg-white p-2.5 shadow-sm hover:bg-gray-50" title="Recargar">
             <RefreshCw className={`h-5 w-5 text-gray-600 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+          <button
+            onClick={borrarTodas}
+            disabled={borrando || prevenciones.length === 0}
+            className="flex items-center gap-2 rounded-lg border border-rojo/30 bg-rojo/5 px-4 py-2.5 text-sm font-bold text-rojo shadow-sm transition-colors hover:bg-rojo hover:text-white disabled:opacity-40"
+            title="Borrar prevenciones actuales"
+          >
+            {borrando ? <Loader2 className="h-5 w-5 animate-spin" /> : <Trash2 className="h-5 w-5" />}
+            Borrar actuales
           </button>
           <label className="flex cursor-pointer items-center gap-2 rounded-lg bg-azul px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-azul/90">
             {subiendo ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}

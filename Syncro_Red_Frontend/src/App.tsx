@@ -17,6 +17,7 @@ import GestionBajas from './pages/GestionBajas';
 import Placeholder from './pages/Placeholder';
 import VisorBitacoras from './pages/VisorBitacoras';
 import Prevenciones from './pages/Prevenciones';
+import VisorBaseDatos from './pages/VisorBaseDatos';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -41,7 +42,7 @@ function App() {
           <Route path="/alistacion" element={<ProtectedRoute><Alistacion /></ProtectedRoute>} />
           <Route path="/turnos" element={<ProtectedRoute><Turnos /></ProtectedRoute>} />
           <Route path="/historicos" element={<ProtectedRoute><Historicos /></ProtectedRoute>} />
-          <Route path="/visor-bd" element={<ProtectedRoute><Placeholder title="Visor de Base de Datos" /></ProtectedRoute>} />
+          <Route path="/visor-bd" element={<ProtectedRoute><VisorBaseDatos /></ProtectedRoute>} />
           <Route path="/personal-operativo" element={<ProtectedRoute><PersonalOperativo /></ProtectedRoute>} />
           <Route path="/gestion-bajas" element={<ProtectedRoute><GestionBajas /></ProtectedRoute>} />
           <Route path="/georreferencia-admin" element={<ProtectedRoute><Placeholder title="Georreferencia de Hitos" /></ProtectedRoute>} />

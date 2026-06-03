@@ -1,29 +1,12 @@
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
 import './Menu.css';
-import {
-  LayoutDashboard,
-  ClipboardList,
-  TrainFront,
-  BookOpen,
-  Map,
-  Users,
-  UserCheck,
-  AlertTriangle,
-  Database,
-  Upload,
-  LogOut,
-  ChevronRight,
-  FileText,
-} from 'lucide-react';
+import { TrainFront, UserCheck, LogOut, ChevronRight } from 'lucide-react';
+import { getNavItems } from '../navItems';
 
 export default function Menu() {
   const { user, logout } = useAuth();
   const rol = (user?.cargo || '').toUpperCase();
-  const esGerencia = rol === 'GERENTE' || rol === 'GERENCIA';
-  const esAdmin = rol === 'ADMIN';
-  const esJefeServicio = rol === 'JEFE SERVICIO' || rol === 'JEFE DE SERVICIO';
-  const esJefatura = esAdmin || rol === 'IL' || rol === 'INSPECTOR DE LINEA' || rol === 'JEFE DE OPERACIONES' || rol === 'SL' || rol === 'SUPERVISOR DE LINEA';
 
   const iniciales = `${user?.nombre?.[0] ?? ''}${user?.apellido?.[0] ?? ''}`.toUpperCase().trim();
 
@@ -132,60 +115,10 @@ export default function Menu() {
         <p>Selecciona un módulo para comenzar tu jornada.</p>
       </div>
 
-      {/* ===== Módulos ===== */}
+      {/* ===== Módulos (misma fuente que el sidebar) ===== */}
       <div className="menu-grid">
-        {/* GERENCIA — solo dashboard */}
-        {esGerencia &&
-          card('/dashboard', 'Dashboard Gerencial', 'Indicadores y métricas operacionales', <LayoutDashboard size={24} />, true)}
-
-        {/* ADMIN */}
-        {esAdmin &&
-          card('/dashboard', 'Dashboard Gerencial', 'Indicadores y métricas operacionales', <LayoutDashboard size={24} />, true)}
-
-        {/* JEFE SERVICIO */}
-        {esJefeServicio && (
-          <>
-            {card('/jefe-servicio', 'Consola de Control de Tráfico', 'Monitoreo de servicios en tiempo real', <TrainFront size={24} />, true)}
-            {card('/historicos', 'Históricos y Reportes', 'Consulta de registros y exportación', <BookOpen size={24} />)}
-          </>
-        )}
-
-        {/* TRIPULACIÓN (maquinista / ayudante) */}
-        {!esGerencia && !esJefeServicio && !esJefatura && !esAdmin && (
-          <>
-            {card('/bitacora',        'Servicios en curso',     'Bitácora operativa de tu turno',        <TrainFront size={24} />, true)}
-            {card('/mapa-ferroviario','Mapa Ferroviario',        'Eventos y trazado de la red en vivo',   <Map size={24} />)}
-            {card('/pauta-diaria',    'Pauta Diaria',            'Planificación y asignación del día',    <ClipboardList size={24} />)}
-            {card('/asistencia',      'Asistencia',              'Apertura y cierre de tu turno',         <UserCheck size={24} />)}
-            {card('/alistacion',      'Mi Alistación',           'Tus horas trabajadas y notificaciones',  <FileText size={24} />)}
-            {card('/turnos',          'Gráfico Tripulación',     'Programación mensual de turnos',        <Users size={24} />)}
-          </>
-        )}
-
-        {/* JEFATURA (IL, SL, JO) */}
-        {esJefatura && !esJefeServicio && (
-          <>
-            {card('/pauta-diaria',     'Pauta Diaria',            'Planificación y asignación del día',        <ClipboardList size={24} />, true)}
-            {card('/visor-bitacoras',  'Visor de Bitácoras',      'Reportes firmados de turno y auditoría',    <BookOpen size={24} />, true)}
-            {card('/visor-bd',         'Base de Datos',           'Visor de datos del sistema',                <Database size={24} />, true)}
-            {card('/personal-operativo','Personal Operativo',     'Directorio de tripulación',                 <Users size={24} />)}
-            {card('/gestion-bajas',    'Gestión de Bajas',        'Licencias, permisos y ausencias',           <AlertTriangle size={24} />)}
-            {card('/mapa-ferroviario', 'Mapa Ferroviario',        'Eventos y trazado de la red en vivo',       <Map size={24} />)}
-          </>
-        )}
-
-        {/* ADMIN extras */}
-        {esAdmin && (
-          <>
-            {card('/pauta-diaria',        'Pauta Diaria',            'Planificación y asignación del día',    <ClipboardList size={24} />)}
-            {card('/visor-bitacoras',     'Visor de Bitácoras',      'Reportes firmados de turno y auditoría',<BookOpen size={24} />, true)}
-            {card('/visor-bd',            'Base de Datos',           'Visor de datos del sistema',            <Database size={24} />, true)}
-            {card('/personal-operativo',  'Personal Operativo',      'Directorio de tripulación',             <Users size={24} />)}
-            {card('/gestion-bajas',       'Gestión de Bajas',        'Licencias, permisos y ausencias',       <AlertTriangle size={24} />)}
-            {card('/georreferencia-admin','Georreferencia de Hitos', 'Administración de puntos geográficos',  <Map size={24} />)}
-            {card('/carga-tripulacion',   'Cargar Tripulación CSV',  'Importación masiva de personal',        <Upload size={24} />, true)}
-          </>
-        )}
+        {getNavItems(user?.cargo).map((i) =>
+          card(i.to, i.label, i.desc, <i.Icon size={24} />, i.primary))}
       </div>
     </div>
   );

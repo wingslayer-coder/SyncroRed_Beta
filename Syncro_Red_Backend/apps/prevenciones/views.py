@@ -26,6 +26,15 @@ class PrevencionViewSet(viewsets.ModelViewSet):
             qs = qs.filter(activa=True)
         return qs
 
+    @action(detail=False, methods=['post'])
+    def eliminar_todas(self, request):
+        """Borra las prevenciones de faenas actuales (solo jefatura) para cargar nuevas."""
+        cargo = (getattr(request.user, 'cargo', '') or '').upper()
+        if cargo not in ROLES_CARGA:
+            return Response({'error': 'Sin permisos'}, status=status.HTTP_403_FORBIDDEN)
+        n, _ = Prevencion.objects.filter(seccion='faena_inicio').delete()
+        return Response({'ok': True, 'eliminadas': n})
+
     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def cargar_excel(self, request):
         """Sube y procesa el Excel de prevenciones (solo jefatura). Reemplaza las faenas de inicio."""
@@ -69,3 +78,24 @@ class PrevencionViewSet(viewsets.ModelViewSet):
 class EstacionViaViewSet(viewsets.ModelViewSet):
     queryset = EstacionVia.objects.all()
     serializer_class = EstacionViaSerializer
+
+
+from rest_framework.views import APIView
+from .trazado_data import TRAZADO, ESTACIONES
+
+
+class TrazadoView(APIView):
+    """Devuelve las polilíneas del trazado y las estaciones para dibujar en el mapa."""
+
+    def get(self, request):
+        colores = {'L1': '#1f4e79', 'L2': '#c0392b'}
+        nombres = {'L1': 'Línea 1 — San Rosendo / Talcahuano', 'L2': 'Línea 2 — Concepción / Coronel'}
+        lineas = []
+        for key in ('L1', 'L2'):
+            puntos = [[p[1], p[2]] for p in TRAZADO.get(key, [])]
+            estaciones = [{'nombre': e[0], 'lat': e[1], 'lon': e[2]} for e in ESTACIONES.get(key, [])]
+            lineas.append({
+                'linea': key, 'nombre': nombres[key], 'color': colores[key],
+                'puntos': puntos, 'estaciones': estaciones,
+            })
+        return Response({'lineas': lineas})

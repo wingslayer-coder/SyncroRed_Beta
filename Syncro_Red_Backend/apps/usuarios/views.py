@@ -7,6 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
+from django.db import transaction
 from .models import Usuario, RegistroOperativo, AusenciaTemporal
 from .serializers import UsuarioSerializer, RegistroOperativoSerializer, AusenciaTemporalSerializer
 
@@ -104,6 +105,50 @@ class MeView(views.APIView):
             'is_active': user.is_active,
             'is_staff': user.is_staff,
             'must_change_password': user.must_change_password,
+        })
+
+
+class WipeBaseDatosView(views.APIView):
+    """Vacía los datos OPERATIVOS de la base (solo ADMIN). Conserva usuarios y datos maestros.
+    Requiere body {confirm: 'ELIMINAR'} para evitar borrados accidentales."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if (getattr(request.user, 'cargo', '') or '').upper() != 'ADMIN':
+            return Response({'error': 'Solo el administrador puede vaciar la base de datos'},
+                            status=status.HTTP_403_FORBIDDEN)
+        if request.data.get('confirm') != 'ELIMINAR':
+            return Response({'error': 'Debe confirmar escribiendo ELIMINAR'}, status=400)
+
+        from apps.alertas.models import Emergencia, Incidencia, FallaEquipo
+        from apps.bitacora.models import ReporteFinal, NovedadOperativa
+        from apps.operaciones.models import (
+            ServicioActivo, ServicioHistorico, RegistroEstacion, GraficoMensual,
+            ParejaTripulacion, Feriado, ItinerarioEquipo,
+        )
+        from apps.prevenciones.models import Prevencion
+
+        modelos = [
+            ('Emergencias', Emergencia), ('Incidencias', Incidencia), ('Fallas de equipo', FallaEquipo),
+            ('Reportes de turno', ReporteFinal), ('Novedades operativas', NovedadOperativa),
+            ('Servicios activos', ServicioActivo), ('Servicios históricos', ServicioHistorico),
+            ('Registros de estación', RegistroEstacion), ('Gráfico mensual', GraficoMensual),
+            ('Parejas de tripulación', ParejaTripulacion), ('Feriados', Feriado),
+            ('Itinerario de equipos', ItinerarioEquipo), ('Registro operativo', RegistroOperativo),
+            ('Ausencias', AusenciaTemporal), ('Prevenciones', Prevencion),
+        ]
+        resumen = {}
+        total = 0
+        with transaction.atomic():
+            for nombre, Modelo in modelos:
+                n, _ = Modelo.objects.all().delete()
+                resumen[nombre] = n
+                total += n
+        return Response({
+            'ok': True,
+            'total_eliminados': total,
+            'eliminados': resumen,
+            'preservados': ['Usuarios', 'Maestro de turnos', 'Itinerario maestro', 'Rutas/estaciones'],
         })
 
 

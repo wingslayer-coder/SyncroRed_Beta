@@ -6,4 +6,6 @@ router = DefaultRouter()
 router.register(r'prevenciones', views.PrevencionViewSet, basename='prevencion')
 router.register(r'estaciones-vias', views.EstacionViaViewSet, basename='estacion-via')
 
-urlpatterns = router.urls
+urlpatterns = router.urls + [
+    path('trazado/', views.TrazadoView.as_view(), name='trazado'),
+]
