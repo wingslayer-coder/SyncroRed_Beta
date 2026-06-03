@@ -1,7 +1,8 @@
 from rest_framework import serializers
 from .models import (
     ServicioActivo, ServicioHistorico, RegistroEstacion,
-    MaestroTurno, GraficoMensual, ItinerarioEquipo
+    MaestroTurno, GraficoMensual, ItinerarioEquipo,
+    ParejaTripulacion, Feriado
 )
 
 
@@ -38,4 +39,26 @@ class GraficoMensualSerializer(serializers.ModelSerializer):
 class ItinerarioEquipoSerializer(serializers.ModelSerializer):
     class Meta:
         model = ItinerarioEquipo
+        fields = '__all__'
+
+
+class ParejaTripulacionSerializer(serializers.ModelSerializer):
+    maquinista_nombre = serializers.SerializerMethodField()
+    ayudante_nombre = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ParejaTripulacion
+        fields = ['id', 'orden', 'maquinista', 'ayudante', 'activa',
+                  'maquinista_nombre', 'ayudante_nombre']
+
+    def get_maquinista_nombre(self, obj):
+        return f"{obj.maquinista.nombre} {obj.maquinista.apellido}".strip() if obj.maquinista else None
+
+    def get_ayudante_nombre(self, obj):
+        return f"{obj.ayudante.nombre} {obj.ayudante.apellido}".strip() if obj.ayudante else None
+
+
+class FeriadoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Feriado
         fields = '__all__'

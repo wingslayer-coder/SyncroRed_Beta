@@ -6,11 +6,28 @@ from .serializers import EmergenciaSerializer, IncidenciaSerializer, FallaEquipo
 from .filters import EmergenciaFilter, IncidenciaFilter, FallaEquipoFilter
 
 
+def _datos_reporta(request):
+    """Devuelve (rut, nombre completo) del usuario autenticado para autocompletar."""
+    user = request.user
+    rut = getattr(user, 'rut', '') or ''
+    nombre = f"{getattr(user, 'nombre', '')} {getattr(user, 'apellido', '')}".strip()
+    return rut, nombre
+
+
 class EmergenciaViewSet(viewsets.ModelViewSet):
     queryset = Emergencia.objects.all().order_by('-fecha_hora')
     serializer_class = EmergenciaSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_class = EmergenciaFilter
+
+    def perform_create(self, serializer):
+        rut, nombre = _datos_reporta(self.request)
+        extra = {}
+        if not serializer.validated_data.get('rut_reporta'):
+            extra['rut_reporta'] = rut
+        if not serializer.validated_data.get('nombre_reporta'):
+            extra['nombre_reporta'] = nombre
+        serializer.save(**extra)
 
     @decorators.action(detail=True, methods=['post'])
     def resolver(self, request, pk=None):
@@ -26,6 +43,15 @@ class IncidenciaViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_class = IncidenciaFilter
 
+    def perform_create(self, serializer):
+        rut, nombre = _datos_reporta(self.request)
+        extra = {}
+        if not serializer.validated_data.get('rut_reporta'):
+            extra['rut_reporta'] = rut
+        if not serializer.validated_data.get('nombre_reporta'):
+            extra['nombre_reporta'] = nombre
+        serializer.save(**extra)
+
     @decorators.action(detail=True, methods=['post'])
     def resolver(self, request, pk=None):
         incidencia = self.get_object()
@@ -39,6 +65,15 @@ class FallaEquipoViewSet(viewsets.ModelViewSet):
     serializer_class = FallaEquipoSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_class = FallaEquipoFilter
+
+    def perform_create(self, serializer):
+        rut, nombre = _datos_reporta(self.request)
+        extra = {}
+        if not serializer.validated_data.get('rut_reporta'):
+            extra['rut_reporta'] = rut
+        if not serializer.validated_data.get('nombre_reporta'):
+            extra['nombre_reporta'] = nombre
+        serializer.save(**extra)
 
     @decorators.action(detail=True, methods=['post'])
     def gestionar(self, request, pk=None):

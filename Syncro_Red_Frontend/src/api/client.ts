@@ -27,9 +27,14 @@ client.interceptors.response.use(
       if (error.config?.url?.includes('/auth/login/')) {
         return Promise.reject(error);
       }
+      // Limpiar sesión completa (incluido 'user') para no quedar en bucle de recarga
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
-      window.location.href = '/login';
+      localStorage.removeItem('user');
+      // Solo redirigir si NO estamos ya en el login (evita recargas infinitas)
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }

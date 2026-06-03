@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import client from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { UserMinus, Save, RefreshCw } from 'lucide-react';
+import { UserMinus, Save, RefreshCw, Sparkles, Clock, Award, X, Moon, ArrowRight } from 'lucide-react';
 
 interface Ausencia {
   id?: number;
@@ -13,12 +13,51 @@ interface Ausencia {
   registrado_por: string;
 }
 
+interface Candidato {
+  rut: string;
+  nombre: string;
+  cargo: string;
+  estado: string;
+  tipo: string;            // 'RECIBIDOR' | 'EN_TURNO'
+  es_recibidor: boolean;
+  es_interrupcion: boolean;
+  horas_extra: number;
+  horas_nocturnas: number;
+  horas_descanso: number;
+  regla: string;
+  detalle: string;
+  score: number;
+}
+
+interface RecoDia {
+  fecha: string;
+  tipo_dia: string;
+  turno: string;
+  servicios: string;
+  req_entrada: string;
+  req_salida: string;
+  tiene_recibidor?: boolean;
+  principal: Candidato | null;
+  alternativa: Candidato | null;
+  candidatos: Candidato[];
+}
+
+interface Recomendacion {
+  rut: string;
+  nombre: string;
+  cargo: string;
+  recomendaciones: RecoDia[];
+  mensaje?: string;
+}
+
 export default function GestionBajas() {
   const { user } = useAuth();
   const [ausencias, setAusencias] = useState<Ausencia[]>([]);
   const [usuarios, setUsuarios] = useState<{ rut: string; nombre: string; apellido: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [reco, setReco] = useState<Recomendacion | null>(null);
+  const [recomendando, setRecomendando] = useState(false);
 
   const hoy = new Date().toISOString().split('T')[0];
   const [form, setForm] = useState<Ausencia>({
@@ -50,15 +89,72 @@ export default function GestionBajas() {
     }
   };
 
+  const sugerirReemplazo = async (rut: string, fecha: string, dias: number) => {
+    setRecomendando(true);
+    setReco(null);
+    try {
+      const res = await client.post('/usuarios/recomendar-reemplazo/', { rut, fecha, dias });
+      setReco(res.data);
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo generar la recomendación de reemplazo.');
+    } finally {
+      setRecomendando(false);
+    }
+  };
+
+  const asignarReemplazo = async (fecha: string, turno: string, rut: string, nombre: string) => {
+    if (!confirm(`¿Asignar a ${nombre} al turno ${turno} del ${fecha}?`)) return;
+    try {
+      await client.post('/operaciones/pauta-diaria/', { fecha, rut, num_turno: turno });
+      alert(`${nombre} asignado al turno ${turno} (${fecha}).`);
+    } catch (err: any) {
+      alert('Error al asignar: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const renderCandidato = (c: Candidato, principal: boolean, fecha: string, turno: string) => (
+    <div className={`rounded-xl border p-4 ${principal ? 'border-verde/40 bg-verde/5' : 'border-gray-200 bg-gray-50/50'}`}>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide ${principal ? 'text-verde' : 'text-gray-500'}`}>
+          {principal ? <Award className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
+          {principal ? 'Recomendación principal' : 'Alternativa'}
+        </span>
+        <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-bold text-gray-500">{c.estado}</span>
+      </div>
+      <div className="text-base font-extrabold text-azul">{c.nombre}</div>
+      <div className="mb-2 text-xs text-gray-400">{c.rut} · {c.cargo}</div>
+      <div className="mb-2 flex flex-wrap gap-2">
+        {c.es_recibidor ? (
+          <span className="rounded-md bg-verde/10 px-2 py-1 text-xs font-bold text-verde">Recibidor (disponible)</span>
+        ) : (
+          <span className="rounded-md bg-orange-100 px-2 py-1 text-xs font-bold text-orange-700">En turno — interrupción</span>
+        )}
+        <span className="rounded-md bg-azul/10 px-2 py-1 text-xs font-bold text-azul">+{c.horas_extra} h extra</span>
+        {c.horas_nocturnas > 0 && <span className="flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-600"><Moon className="h-3 w-3" /> {c.horas_nocturnas} h noct.</span>}
+        {c.horas_descanso > 0 && <span className="rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">{c.horas_descanso} h descanso</span>}
+      </div>
+      <p className="mb-3 text-xs text-gray-600"><b>{c.regla}.</b> {c.detalle}</p>
+      <button
+        onClick={() => asignarReemplazo(fecha, turno, c.rut, c.nombre)}
+        className="w-full rounded-lg bg-azul px-4 py-2 text-xs font-bold text-white hover:bg-azul/90"
+      >
+        Asignar al turno {turno}
+      </button>
+    </div>
+  );
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.rut) return alert('Seleccione un trabajador');
     setSaving(true);
     try {
       await client.post('/usuarios/ausencias/', form);
-      alert('Ausencia registrada exitosamente');
+      const { rut, fecha, dias } = form;
       cargarDatos();
       setForm({ ...form, rut: '', motivo: '', dias: 1 });
+      // Sugerir automáticamente el reemplazo para los turnos afectados
+      sugerirReemplazo(rut, fecha, dias);
     } catch (err) {
       console.error(err);
       alert('Error al registrar ausencia');
@@ -190,6 +286,7 @@ export default function GestionBajas() {
                     <th className="border-b border-gray-200 px-4 py-3 text-left">Tipo</th>
                     <th className="border-b border-gray-200 px-4 py-3 text-center">Días</th>
                     <th className="border-b border-gray-200 px-4 py-3 text-left">Motivo</th>
+                    <th className="border-b border-gray-200 px-4 py-3 text-center">Reemplazo</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -218,6 +315,15 @@ export default function GestionBajas() {
                         <td className="max-w-xs truncate px-4 py-3 text-xs text-gray-600" title={a.motivo}>
                           {a.motivo || '-'}
                         </td>
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            onClick={() => sugerirReemplazo(usr?.rut ?? (a.rut as string), a.fecha, a.dias)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-azul/20 bg-azul/5 px-2.5 py-1.5 text-xs font-bold text-azul transition-colors hover:bg-azul/10"
+                            title="Sugerir reemplazo"
+                          >
+                            <Sparkles className="h-3.5 w-3.5" /> Sugerir
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -227,6 +333,56 @@ export default function GestionBajas() {
           </div>
         </div>
       </div>
+
+      {/* ── Panel de recomendación de reemplazo ── */}
+      {(recomendando || reco) && (
+        <div className="overflow-hidden rounded-2xl border border-azul/20 bg-white shadow-sm">
+          <div className="flex items-center justify-between gap-2 border-b border-gray-100 bg-gradient-to-r from-azul/5 to-white px-6 py-4">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-azul" />
+              <h3 className="font-bold text-azul">Recomendación de Reemplazo{reco ? ` — ${reco.nombre}` : ''}</h3>
+            </div>
+            {reco && (
+              <button onClick={() => setReco(null)} className="rounded-md p-1 text-gray-400 hover:bg-gray-100" title="Cerrar">
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <div className="p-6">
+            {recomendando ? (
+              <div className="py-8 text-center text-gray-400">Analizando candidatos…</div>
+            ) : reco && reco.recomendaciones.length === 0 ? (
+              <div className="py-8 text-center text-gray-500">
+                {reco.mensaje || 'El trabajador no tiene turnos asignados en esas fechas; no requiere reemplazo.'}
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {reco?.recomendaciones.map((d) => (
+                  <div key={d.fecha} className="rounded-xl border border-gray-200">
+                    <div className="flex flex-wrap items-center gap-x-6 gap-y-1 border-b border-gray-100 bg-gray-50/70 px-5 py-3 text-sm">
+                      <span className="font-bold text-azul">{d.fecha}</span>
+                      <span className="text-gray-500">Turno <b className="text-gray-700">{d.turno}</b> ({d.tipo_dia})</span>
+                      <span className="flex items-center gap-1 text-gray-500"><Clock className="h-3.5 w-3.5" /> Apertura {d.req_entrada} – Cierre {d.req_salida}</span>
+                      {d.servicios && <span className="max-w-md truncate text-gray-400" title={d.servicios}>Servicios: {d.servicios}</span>}
+                    </div>
+                    {d.principal && !d.tiene_recibidor && (
+                      <div className="mx-5 mt-4 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-700">
+                        No hay recibidor disponible este día. Se sugiere interrumpir un turno como último recurso (no se puede llamar a personal en descanso).
+                      </div>
+                    )}
+                    <div className="grid gap-4 p-5 md:grid-cols-2">
+                      {d.principal ? renderCandidato(d.principal, true, d.fecha, d.turno) : (
+                        <div className="text-sm text-gray-500">Sin candidatos disponibles para cubrir este turno.</div>
+                      )}
+                      {d.alternativa && renderCandidato(d.alternativa, false, d.fecha, d.turno)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

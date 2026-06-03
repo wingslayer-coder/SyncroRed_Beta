@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { useState, useEffect, useRef } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import client from '../api/client';
+import 'leaflet.heat';
+import { useAlertas } from '../context/AlertasContext';
 import type { EventoMapa } from '../types';
-import { Map, RefreshCw } from 'lucide-react';
+import { Map, Layers, MapPin } from 'lucide-react';
 
 // Arreglo para los iconos de leaflet
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -32,28 +33,55 @@ const orangeIcon = new L.Icon({
   shadowSize: [41, 41],
 });
 
-export default function MapaFerroviario() {
-  const [eventos, setEventos] = useState<EventoMapa[]>([]);
-  const [loading, setLoading] = useState(true);
+const yellowIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-yellow.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
 
-  const hoy = new Date().toISOString().split('T')[0];
-  const ayer = new Date(Date.now() - 86400000 * 2).toISOString().split('T')[0];
-
-  const cargarEventos = async () => {
-    setLoading(true);
-    try {
-      const res = await client.get(`/operaciones/eventos-mapa/?fecha_desde=${ayer}&fecha_hasta=${hoy}`);
-      setEventos(res.data.eventos || []);
-    } catch (err) {
-      console.error('Error fetching map events:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+// Componente para la capa de calor
+function HeatmapLayer({ data }: { data: EventoMapa[] }) {
+  const map = useMap();
+  const heatLayerRef = useRef<any>(null);
 
   useEffect(() => {
-    cargarEventos();
-  }, []);
+    if (!map) return;
+
+    const points = data
+      .filter(ev => ev.lat !== null && ev.lon !== null)
+      .map(ev => [
+        ev.lat!,
+        ev.lon!,
+        ev.tipo === 'Emergencia' ? 1.0 : ev.tipo === 'Falla de Equipo' ? 0.7 : 0.5 // Intensidad
+      ] as L.HeatLatLngTuple);
+
+    if (heatLayerRef.current) {
+      map.removeLayer(heatLayerRef.current);
+    }
+
+    heatLayerRef.current = (L as any).heatLayer(points, {
+      radius: 25,
+      blur: 15,
+      maxZoom: 13,
+      gradient: { 0.4: 'yellow', 0.65: 'orange', 1: 'red' }
+    }).addTo(map);
+
+    return () => {
+      if (heatLayerRef.current && map) {
+        map.removeLayer(heatLayerRef.current);
+      }
+    };
+  }, [map, data]);
+
+  return null;
+}
+
+export default function MapaFerroviario() {
+  const { eventos } = useAlertas();
+  const [viewMode, setViewMode] = useState<'markers' | 'heatmap'>('markers');
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto h-[calc(100vh-140px)] flex flex-col">
@@ -68,12 +96,26 @@ export default function MapaFerroviario() {
             <p className="text-sm text-gray-400">Eventos georreferenciados de la red</p>
           </div>
         </div>
-        <button
-          onClick={cargarEventos}
-          className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Actualizar
-        </button>
+        
+        {/* Toggle View Mode */}
+        <div className="flex p-1 bg-gray-100 rounded-lg">
+          <button
+            onClick={() => setViewMode('markers')}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-md transition-colors ${
+              viewMode === 'markers' ? 'bg-white text-azul shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <MapPin className="h-4 w-4" /> Puntos
+          </button>
+          <button
+            onClick={() => setViewMode('heatmap')}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-md transition-colors ${
+              viewMode === 'heatmap' ? 'bg-white text-rojo shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <Layers className="h-4 w-4" /> Mapa de Calor
+          </button>
+        </div>
       </div>
 
       <div className="relative z-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
@@ -82,20 +124,27 @@ export default function MapaFerroviario() {
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          {eventos.map((ev, idx) => {
-            if (ev.lat && ev.lon) {
+          
+          {viewMode === 'heatmap' && <HeatmapLayer data={eventos} />}
+          
+          {viewMode === 'markers' && eventos.map((ev, idx) => {
+            if (ev.lat !== null && ev.lon !== null) {
               return (
                 <Marker
-                  key={idx}
+                  key={ev.id || idx}
                   position={[ev.lat, ev.lon]}
-                  icon={ev.tipo === 'Emergencia' ? redIcon : orangeIcon}
+                  icon={ev.tipo === 'Emergencia' ? redIcon : ev.tipo === 'Falla de Equipo' ? orangeIcon : yellowIcon}
                 >
                   <Popup>
-                    <div className="p-1">
-                      <div className="mb-1 border-b pb-1 font-bold">{ev.tipo} - Tren {ev.tren}</div>
-                      <div className="text-sm"><b>Evento:</b> {ev.evento}</div>
-                      <div className="text-sm"><b>Estado:</b> {ev.estado}</div>
-                      <div className="mt-2 text-xs text-gray-500">{ev.fecha_hora}</div>
+                    <div className="p-1 min-w-[210px]">
+                      <div className="mb-2 border-b pb-1 font-bold text-azul">{ev.tipo}</div>
+                      <div className="text-sm mb-1"><b>Evento:</b> {ev.evento}</div>
+                      {ev.notificado_por && <div className="text-sm mb-1"><b>Notificado por:</b> {ev.notificado_por}</div>}
+                      {ev.equipo && <div className="text-sm mb-1"><b>Equipo:</b> {ev.equipo}</div>}
+                      <div className="text-sm mb-1"><b>Servicio:</b> {ev.tren || '—'}</div>
+                      {ev.ubicacion && <div className="text-sm mb-1"><b>Ubicación:</b> {ev.ubicacion}</div>}
+                      <div className="text-sm mb-1"><b>Estado:</b> <span className="font-semibold">{ev.estado}</span></div>
+                      <div className="mt-2 text-xs text-gray-500 text-right">{ev.fecha_hora ? new Date(ev.fecha_hora).toLocaleString() : ''}</div>
                     </div>
                   </Popup>
                 </Marker>
@@ -115,7 +164,10 @@ export default function MapaFerroviario() {
               <span className="h-3 w-3 rounded-full bg-red-600 ring-2 ring-red-200" /> Emergencia Activa
             </div>
             <div className="flex items-center gap-2">
-              <span className="h-3 w-3 rounded-full bg-orange-500 ring-2 ring-orange-200" /> Incidencia Ferroviaria
+              <span className="h-3 w-3 rounded-full bg-orange-500 ring-2 ring-orange-200" /> Falla de Equipo
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="h-3 w-3 rounded-full bg-yellow-400 ring-2 ring-yellow-200" /> Incidencia Ferroviaria
             </div>
           </div>
         </div>

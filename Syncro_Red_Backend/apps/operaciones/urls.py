@@ -9,8 +9,13 @@ router.register(r'registros-estaciones', views.RegistroEstacionViewSet, basename
 router.register(r'maestro-turnos', views.MaestroTurnoViewSet, basename='maestro-turno')
 router.register(r'grafico-mensual', views.GraficoMensualViewSet, basename='grafico-mensual')
 router.register(r'itinerario-equipos', views.ItinerarioEquipoViewSet, basename='itinerario-equipo')
+router.register(r'parejas-tripulacion', views.ParejaTripulacionViewSet, basename='pareja-tripulacion')
+router.register(r'feriados', views.FeriadoViewSet, basename='feriado')
 
-urlpatterns = router.urls + [
+urlpatterns = [
+    # Antes del router para que no lo capture como detalle (pk='generar')
+    path('grafico-mensual/generar/', views.GenerarGraficoView.as_view(), name='generar-grafico'),
+] + router.urls + [
     path('pauta-diaria/', views.PautaDiariaView.as_view(), name='pauta-diaria'),
     path('mi-turno/', views.MiTurnoView.as_view(), name='mi-turno'),
     path('tripulacion-disponible/', views.TripulacionDisponibleView.as_view(), name='tripulacion-disponible'),

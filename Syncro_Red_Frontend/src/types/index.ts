@@ -7,6 +7,12 @@ export interface User {
   must_change_password?: boolean;
 }
 
+export interface AusenteInfo {
+  nombre: string;
+  rut: string;
+  tipo: string;
+}
+
 export interface PautaDiariaItem {
   turno: string;
   servicios: string;
@@ -14,6 +20,8 @@ export interface PautaDiariaItem {
   mq_rut: string | null;
   ay_nombre: string | null;
   ay_rut: string | null;
+  mq_ausente?: AusenteInfo | null;
+  ay_ausente?: AusenteInfo | null;
   apertura_hora: string;
   apertura_lugar: string;
   presentacion_hora: string;
@@ -26,6 +34,7 @@ export interface DisponibleItem {
   rut: string;
   nombre: string;
   cargo: string;
+  estado?: string;
 }
 
 export interface DashboardKPIs {
@@ -43,6 +52,7 @@ export interface DashboardKPIs {
 }
 
 export interface EventoMapa {
+  id?: string;
   tipo: string;
   color: string;
   fecha_hora: string | null;
@@ -54,6 +64,7 @@ export interface EventoMapa {
   evento: string;
   detalle: string;
   ubicacion: string;
+  notificado_por?: string;
   lat: number | null;
   lon: number | null;
   estado: string;

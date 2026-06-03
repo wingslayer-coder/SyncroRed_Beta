@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import client from '../api/client';
+import { obtenerUbicacionGPS, vigilarUbicacion } from '../utils/geo';
+import PrevencionesCabina from '../components/PrevencionesCabina';
 import {
   Clock, Trash2, AlertTriangle, Plus, Check,
   ChevronDown, ChevronRight, AlertCircle, ShieldAlert, Wrench, FileText,
@@ -530,6 +532,9 @@ export default function Bitacora() {
   const esAyudante   = (user?.cargo || '').toUpperCase() === 'AYUDANTE';
   const nombreCompleto = user ? `${user.nombre} ${user.apellido}`.trim() : '';
 
+  // El ayudante marca/edita las pasadas; el maquinista es observador (salvo reportar eventos).
+  const puedeMarcar = !esMaquinista;
+
   // — Servicios
   const [servicios, setServicios] = useState<ServicioActivo[]>([]);
   const [servicioExpandido, setServicioExpandido] = useState<string | null>(null);
@@ -567,8 +572,6 @@ export default function Bitacora() {
   // — Formularios temporales para modales
   const [formIncTipo, setFormIncTipo] = useState(TIPOS_INCIDENCIA[0]);
   const [formIncDesc, setFormIncDesc] = useState('');
-  const [formIncEst, setFormIncEst] = useState('');
-  const [formIncRes, setFormIncRes] = useState('');
 
   const [formFallaSist, setFormFallaSist] = useState(SISTEMAS_FALLA[0]);
   const [formFallaDesc, setFormFallaDesc] = useState('');
@@ -600,6 +603,112 @@ export default function Bitacora() {
       })
       .catch(() => { /* sin conexión: lista vacía */ });
   }, []);
+
+  // — Espejo de los servicios para leerlos dentro del polling sin re-suscribir el intervalo
+  const serviciosRef = useRef<ServicioActivo[]>([]);
+  useEffect(() => { serviciosRef.current = servicios; }, [servicios]);
+
+  /* ====================================================================
+     BITÁCORA COMPARTIDA — hidratar desde backend (maquinista + ayudante)
+     y sincronizar en tiempo real vía polling. Reconcilia por tren_num.
+     ==================================================================== */
+  useEffect(() => {
+    if (!user) return;
+    let cancelado = false;
+
+    const hidratar = async () => {
+      try {
+        const res = await client.get(`/operaciones/servicios-activos/mis_servicios/?fecha=${hoy}`);
+        if (cancelado) return;
+        const backendServicios: any[] = res.data?.servicios || [];
+        if (backendServicios.length === 0) return;
+
+        const prevSrv = serviciosRef.current;
+        const byTren = new Map(prevSrv.map(s => [s.n_servicio, s] as const));
+        const idPorServicio: Record<string, number> = {};
+        const placeholders: Record<string, RegistroPasada> = {};
+        const marcados: Record<string, RegistroPasada> = {};
+        const incPorSrv: Record<string, Incidencia[]> = {};
+        const falPorSrv: Record<string, FallaEquipo[]> = {};
+        const emePorSrv: Record<string, Emergencia[]> = {};
+
+        backendServicios.forEach(bs => {
+          const existing = byTren.get(bs.tren_num);
+          const ruta_id = SERVICIOS_DISPONIBLES[bs.tren_num] || existing?.ruta_id || 'l2_ida';
+          const [cat, uni] = String(bs.equipo_id || '').split('-');
+          const localId = existing?.id || `srv_${bs.id}`;
+          byTren.set(bs.tren_num, {
+            id: localId,
+            fecha: bs.fecha,
+            tipo_itinerario: existing?.tipo_itinerario || tipoItinerario,
+            categoria_equipo: cat || existing?.categoria_equipo || 'SFE',
+            unidad: uni || existing?.unidad || '',
+            maquinista: bs.maquinista,
+            ayudante: bs.ayudante,
+            n_servicio: bs.tren_num,
+            ruta_id,
+            estado: existing?.estado || 'EN CURSO',
+          });
+          idPorServicio[localId] = bs.id;
+
+          const estaciones = RUTAS[ruta_id] || [];
+          const horarios = HORARIOS_SERVICIO[bs.tren_num] || [];
+          if (!existing) {
+            estaciones.forEach((_, i) => {
+              if (horarios[i] != null) {
+                placeholders[`${localId}_${i}`] = { estado: 'PENDIENTE', hora_real: '', timestamp_iso: '', minutos_atraso: 0, categoria_atraso: '', detalle_atraso: '', locked: false };
+              }
+            });
+          }
+          (bs.pasadas || []).forEach((p: any) => {
+            const idx = estaciones.indexOf(p.estacion);
+            // Solo bloquear como marcada si realmente se registró un paso.
+            if (idx >= 0 && (p.estado === 'A LA HORA' || p.estado === 'ATRASO')) {
+              marcados[`${localId}_${idx}`] = {
+                estado: p.estado === 'ATRASO' ? 'ATRASO' : 'A_LA_HORA',
+                hora_real: '', timestamp_iso: p.timestamp || '',
+                minutos_atraso: p.minutos_atraso || 0,
+                categoria_atraso: '', detalle_atraso: '', locked: true,
+              };
+            }
+          });
+
+          incPorSrv[localId] = (bs.incidencias || []).map((i: any) => ({
+            id: String(i.id), fecha_hora: i.fecha_hora ? new Date(i.fecha_hora).toLocaleString('es-CL') : '',
+            tipo: i.tipo_incidencia, descripcion: i.detalle, estacion: i.ubicacion, resolucion: '',
+          }));
+          falPorSrv[localId] = (bs.fallas || []).map((f: any) => ({
+            id: String(f.id), fecha_hora: f.fecha_hora ? new Date(f.fecha_hora).toLocaleString('es-CL') : '',
+            sistema_afectado: f.sistema_afectado, descripcion: f.detalle, severidad: '', resuelto: f.estado === 'CERRADA',
+          }));
+          emePorSrv[localId] = (bs.emergencias || []).map((e: any) => ({
+            id: String(e.id), fecha_hora: e.fecha_hora ? new Date(e.fecha_hora).toLocaleString('es-CL') : '',
+            tipo_emergencia: e.tipo_evento, descripcion: e.ubicacion, personas_afectadas: 0, acciones_tomadas: '',
+          }));
+        });
+
+        if (cancelado) return;
+        setServicios(Array.from(byTren.values()));
+        setBackendIds(prev => ({ ...prev, ...idPorServicio }));
+        setRegistros(prev => {
+          const next = { ...prev };
+          for (const [k, v] of Object.entries(placeholders)) if (!(k in next)) next[k] = v;
+          for (const [k, v] of Object.entries(marcados)) {
+            const cur = next[k];
+            if (!cur || !cur.locked) next[k] = v;  // no pisar marcas locales con detalle de atraso
+          }
+          return next;
+        });
+        setIncidencias(prev => ({ ...prev, ...incPorSrv }));
+        setFallas(prev => ({ ...prev, ...falPorSrv }));
+        setEmergencias(prev => ({ ...prev, ...emePorSrv }));
+      } catch { /* sin conexión: mantener estado local */ }
+    };
+
+    hidratar();
+    const intervalId = setInterval(hidratar, 10000);
+    return () => { cancelado = true; clearInterval(intervalId); };
+  }, [user, hoy, tipoItinerario]);
 
   // — Cuando cambia la categoría, resetear unidad al primer valor disponible
   useEffect(() => {
@@ -707,6 +816,7 @@ export default function Bitacora() {
   /* Botón cíclico: PENDIENTE → A_LA_HORA (locked) | PENDIENTE → modal ATRASO (locked)
      Una vez marcado, el registro queda bloqueado — no se puede cambiar. */
   const ciclarEstacion = (key: string) => {
+    if (!puedeMarcar) return;             // maquinista observador
     const r = registros[key];
     if (!r || r.locked) return;           // ya marcado → no hacer nada
     if (r.estado === 'PENDIENTE') {
@@ -733,6 +843,7 @@ export default function Bitacora() {
   };
 
   const iniciarAtraso = (key: string) => {
+    if (!puedeMarcar) return;             // maquinista observador
     const r = registros[key];
     if (!r || r.locked) return;
     setEditandoAtraso(key);
@@ -771,33 +882,108 @@ export default function Bitacora() {
   /* ====================================================================
      HANDLERS — Incidencias / Fallas / Emergencias
      ==================================================================== */
+  /* Ubicación textual del servicio: última estación marcada o etiqueta de ruta */
+  const ubicacionServicio = (srv: ServicioActivo): string => {
+    const estaciones = RUTAS[srv.ruta_id] || [];
+    let ultima = '';
+    estaciones.forEach((est, i) => {
+      if (registros[`${srv.id}_${i}`]?.locked) ultima = est;
+    });
+    return ultima || RUTA_LABELS[srv.ruta_id] || '';
+  };
+
+  /* Persiste una alerta en el backend con GPS. Si no hay coordenadas al momento,
+     queda registrada igual y se actualizan automáticamente cuando llega la señal. */
+  const enviarAlertaGeo = async (endpoint: string, payload: Record<string, unknown>) => {
+    const coords = await obtenerUbicacionGPS();
+    const body = { ...payload, latitud: coords?.lat ?? null, longitud: coords?.lon ?? null };
+    try {
+      const res = await client.post(endpoint, body);
+      const id = res.data?.id;
+      if (!coords && id) {
+        // El permiso/señal llegó tarde: actualizar el reporte ya creado.
+        vigilarUbicacion(c => {
+          client.patch(`${endpoint}${id}/`, { latitud: c.lat, longitud: c.lon }).catch(() => {});
+        });
+      }
+    } catch (err) {
+      console.error('Error al enviar alerta:', err);
+      alert('No se pudo registrar la alerta en el sistema. Reintente.');
+    }
+  };
+
   const guardarIncidencia = (srvId: string) => {
     if (!formIncDesc) return;
+    const srv = servicios.find(s => s.id === srvId);
     const nueva: Incidencia = {
       id: Date.now().toString(), fecha_hora: new Date().toLocaleString('es-CL'),
-      tipo: formIncTipo, descripcion: formIncDesc, estacion: formIncEst, resolucion: formIncRes
+      tipo: formIncTipo, descripcion: formIncDesc, estacion: srv ? ubicacionServicio(srv) : '', resolucion: ''
     };
     setIncidencias(prev => ({ ...prev, [srvId]: [...(prev[srvId] || []), nueva] }));
-    setFormIncDesc(''); setFormIncRes(''); setModalAbierto(prev => ({ ...prev, [srvId]: null }));
+    if (srv) {
+      enviarAlertaGeo('/alertas/incidencias/', {
+        fecha: hoy,
+        tren_num: srv.n_servicio,
+        equipo: `${srv.categoria_equipo}-${srv.unidad}`,
+        maquinista: srv.maquinista,
+        ayudante: srv.ayudante,
+        nombre_reporta: nombreCompleto,
+        rut_reporta: user?.rut || '',
+        tipo_incidencia: formIncTipo,
+        detalle: formIncDesc,
+        ubicacion: ubicacionServicio(srv),
+        estado: 'REGISTRADA',
+      });
+    }
+    setFormIncDesc(''); setModalAbierto(prev => ({ ...prev, [srvId]: null }));
   };
 
   const guardarFalla = (srvId: string) => {
     if (!formFallaDesc) return;
+    const srv = servicios.find(s => s.id === srvId);
     const nueva: FallaEquipo = {
       id: Date.now().toString(), fecha_hora: new Date().toLocaleString('es-CL'),
       sistema_afectado: formFallaSist, descripcion: formFallaDesc, severidad: formFallaSev, resuelto: false
     };
     setFallas(prev => ({ ...prev, [srvId]: [...(prev[srvId] || []), nueva] }));
+    if (srv) {
+      enviarAlertaGeo('/alertas/fallas-equipo/', {
+        tren_num: srv.n_servicio,
+        equipo: `${srv.categoria_equipo}-${srv.unidad}`,
+        nombre_reporta: nombreCompleto,
+        rut_reporta: user?.rut || '',
+        sistema_afectado: formFallaSist,
+        detalle: `[${formFallaSev}] ${formFallaDesc}`,
+        estado: 'PENDIENTE',
+      });
+    }
     setFormFallaDesc(''); setModalAbierto(prev => ({ ...prev, [srvId]: null }));
   };
 
   const guardarEmergencia = (srvId: string) => {
     if (!formEmeDesc) return;
+    const srv = servicios.find(s => s.id === srvId);
     const nueva: Emergencia = {
       id: Date.now().toString(), fecha_hora: new Date().toLocaleString('es-CL'),
       tipo_emergencia: formEmeTipo, descripcion: formEmeDesc, personas_afectadas: formEmePersonas, acciones_tomadas: formEmeAcciones
     };
     setEmergencias(prev => ({ ...prev, [srvId]: [...(prev[srvId] || []), nueva] }));
+    if (srv) {
+      const loc = ubicacionServicio(srv);
+      const desc = `${formEmeDesc} | Afectados: ${formEmePersonas}` +
+        (formEmeAcciones ? ` | Acciones: ${formEmeAcciones}` : '');
+      enviarAlertaGeo('/alertas/emergencias/', {
+        tren_num: srv.n_servicio,
+        equipo: `${srv.categoria_equipo}-${srv.unidad}`,
+        maquinista: srv.maquinista,
+        ayudante: srv.ayudante,
+        nombre_reporta: nombreCompleto,
+        rut_reporta: user?.rut || '',
+        tipo_evento: formEmeTipo,
+        ubicacion: loc ? `${loc} — ${desc}` : desc,
+        estado_alerta: 'ACTIVA',
+      });
+    }
     setFormEmeDesc(''); setFormEmeAcciones(''); setModalAbierto(prev => ({ ...prev, [srvId]: null }));
   };
 
@@ -1005,6 +1191,16 @@ export default function Bitacora() {
           ENCABEZADO — Panel de Tripulación
           ══════════════════════════════════════════════════════════ */}
       <h1 className="text-2xl font-extrabold text-azul mb-6">Panel de Tripulación</h1>
+
+      {esMaquinista && (
+        <div className="mb-6 flex items-center gap-2 rounded-xl border border-azul/20 bg-azul/5 px-4 py-3 text-sm text-azul">
+          <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+          <span>Modo <b>observador</b>: el avance de pasadas lo marca tu ayudante y se sincroniza en vivo. Puedes reportar incidencias, fallas y emergencias.</span>
+        </div>
+      )}
+
+      {/* Prevenciones de vía con GPS (cabina) */}
+      <PrevencionesCabina />
 
       {/* ══════════════════════════════════════════════════════════
           TARJETA DE UBICACIÓN EN VIVO
@@ -1315,12 +1511,9 @@ export default function Bitacora() {
                 {modal === 'incidencia' && (
                   <div className="border-b border-gray-100 bg-amber-50/60 p-5">
                     <h4 className="mb-3 flex items-center gap-2 text-sm font-bold text-azul"><AlertCircle className="h-4 w-4 text-amber-500" /> Registrar Incidencia</h4>
-                    <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <div><label className={labelCls}>Tipo</label><select value={formIncTipo} onChange={e => setFormIncTipo(e.target.value)} className={inputCls}>{TIPOS_INCIDENCIA.map(t => <option key={t}>{t}</option>)}</select></div>
-                      <div><label className={labelCls}>Estación</label><select value={formIncEst} onChange={e => setFormIncEst(e.target.value)} className={inputCls}><option value="">Seleccione...</option>{estaciones.map(e => <option key={e}>{e}</option>)}</select></div>
-                    </div>
-                    <div className="mb-3"><label className={labelCls}>Descripción</label><textarea value={formIncDesc} onChange={e => setFormIncDesc(e.target.value)} rows={2} className={inputCls} placeholder="Describa la incidencia..." /></div>
-                    <div className="mb-3"><label className={labelCls}>Resolución tomada</label><textarea value={formIncRes} onChange={e => setFormIncRes(e.target.value)} rows={2} className={inputCls} placeholder="Resolución adoptada..." /></div>
+                    <div className="mb-3"><label className={labelCls}>Tipo</label><select value={formIncTipo} onChange={e => setFormIncTipo(e.target.value)} className={inputCls}>{TIPOS_INCIDENCIA.map(t => <option key={t}>{t}</option>)}</select></div>
+                    <div className="mb-3"><label className={labelCls}>Descripción</label><textarea value={formIncDesc} onChange={e => setFormIncDesc(e.target.value)} rows={2} className={inputCls} placeholder="Describa brevemente la incidencia..." /></div>
+                    <p className="mb-3 flex items-center gap-1.5 text-[11px] text-gray-400"><MapPin className="h-3.5 w-3.5" /> La ubicación se adjunta automáticamente por GPS.</p>
                     <div className="flex justify-end gap-2">
                       <button onClick={() => setModalAbierto(p => ({ ...p, [srv.id]: null }))} className="rounded-lg bg-gray-100 px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-200">Cancelar</button>
                       <button onClick={() => guardarIncidencia(srv.id)} className="rounded-lg bg-azul px-4 py-2 text-xs font-bold text-white hover:bg-azul/90">Guardar Incidencia</button>
@@ -1463,6 +1656,10 @@ export default function Bitacora() {
                                       <AlertTriangle className="h-3.5 w-3.5" /> Atraso +{r.minutos_atraso} min
                                     </span>
                                   )
+                                ) : !puedeMarcar ? (
+                                  <span className="inline-flex items-center gap-1.5 rounded-md bg-gray-100 px-3 py-2 text-xs font-semibold text-gray-400">
+                                    <Clock className="h-3.5 w-3.5" /> Pendiente
+                                  </span>
                                 ) : (
                                   <div className="flex items-center gap-2">
                                     <button

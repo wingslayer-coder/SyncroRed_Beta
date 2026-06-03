@@ -5,10 +5,14 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
 from django.db import transaction
 from django.db.models import Sum
-from .models import ServicioActivo, ServicioHistorico, RegistroEstacion, MaestroTurno, GraficoMensual, ItinerarioEquipo
+from .models import (
+    ServicioActivo, ServicioHistorico, RegistroEstacion, MaestroTurno, GraficoMensual,
+    ItinerarioEquipo, ParejaTripulacion, Feriado
+)
 from .serializers import (
     ServicioActivoSerializer, ServicioHistoricoSerializer, RegistroEstacionSerializer,
-    MaestroTurnoSerializer, GraficoMensualSerializer, ItinerarioEquipoSerializer
+    MaestroTurnoSerializer, GraficoMensualSerializer, ItinerarioEquipoSerializer,
+    ParejaTripulacionSerializer, FeriadoSerializer
 )
 from .filters import ServicioActivoFilter, RegistroEstacionFilter, ItinerarioEquipoFilter
 from apps.usuarios.models import Usuario, AusenciaTemporal
@@ -21,6 +25,14 @@ class ServicioActivoViewSet(viewsets.ModelViewSet):
     serializer_class = ServicioActivoSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_class = ServicioActivoFilter
+
+    def perform_destroy(self, instance):
+        # Al eliminar un servicio se borran también sus pasadas, para que
+        # volver a cargar el mismo tren/fecha empiece sin marcas previas.
+        RegistroEstacion.objects.filter(
+            fecha=instance.fecha, tren_num=instance.tren_num
+        ).delete()
+        instance.delete()
 
     @decorators.action(detail=True, methods=['get'])
     def pasadas(self, request, pk=None):
@@ -39,6 +51,60 @@ class ServicioActivoViewSet(viewsets.ModelViewSet):
             for r in registros
         ]
         return Response({'tren_num': servicio.tren_num, 'pasadas': data})
+
+    @decorators.action(detail=False, methods=['get'])
+    def mis_servicios(self, request):
+        """Servicios de la fecha donde el usuario autenticado es maquinista o ayudante,
+        con sus pasadas y eventos asociados — para la bitácora compartida en tiempo real."""
+        from django.db.models import Q
+        fecha = request.query_params.get('fecha') or str(timezone.now().date())
+        rut = getattr(request.user, 'rut', '') or ''
+
+        servicios = ServicioActivo.objects.filter(fecha=fecha).filter(
+            Q(rut_maquinista=rut) | Q(rut_ayudante=rut)
+        ).exclude(estado='CERRADO').order_by('tren_num')
+
+        data = []
+        for srv in servicios:
+            registros = RegistroEstacion.objects.filter(
+                fecha=srv.fecha, tren_num=srv.tren_num
+            ).order_by('timestamp')
+            pasadas = [
+                {
+                    'estacion': r.estacion_id,
+                    'estado': r.estado,
+                    'minutos_atraso': int(r.obs) if r.obs and r.obs.lstrip('-').isdigit() else 0,
+                    'timestamp': r.timestamp.isoformat() if r.timestamp else None,
+                }
+                for r in registros
+            ]
+
+            incidencias = list(Incidencia.objects.filter(fecha=srv.fecha, tren_num=srv.tren_num).values(
+                'id', 'fecha_hora', 'tipo_incidencia', 'detalle', 'ubicacion', 'estado', 'nombre_reporta'))
+            fallas = list(FallaEquipo.objects.filter(
+                fecha_hora__date=srv.fecha, tren_num=srv.tren_num).values(
+                'id', 'fecha_hora', 'sistema_afectado', 'detalle', 'estado', 'nombre_reporta'))
+            emergencias = list(Emergencia.objects.filter(
+                fecha_hora__date=srv.fecha, tren_num=srv.tren_num).values(
+                'id', 'fecha_hora', 'tipo_evento', 'ubicacion', 'estado_alerta', 'nombre_reporta'))
+
+            data.append({
+                'id': srv.id,
+                'fecha': str(srv.fecha),
+                'tren_num': srv.tren_num,
+                'equipo_id': srv.equipo_id,
+                'maquinista': srv.maquinista,
+                'ayudante': srv.ayudante,
+                'rut_maquinista': srv.rut_maquinista,
+                'rut_ayudante': srv.rut_ayudante,
+                'estado': srv.estado,
+                'pasadas': pasadas,
+                'incidencias': incidencias,
+                'fallas': fallas,
+                'emergencias': emergencias,
+            })
+
+        return Response({'fecha': fecha, 'servicios': data})
 
     @decorators.action(detail=True, methods=['post'])
     def ubicacion(self, request, pk=None):
@@ -65,6 +131,26 @@ class RegistroEstacionViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_class = RegistroEstacionFilter
 
+    def create(self, request, *args, **kwargs):
+        """Idempotente: si ya existe registro para (fecha, tren_num, estacion_id) lo actualiza,
+        evitando el 400 por unique_together cuando ambos miembros de la tripulación marcan."""
+        data = request.data
+        fecha = data.get('fecha')
+        tren_num = data.get('tren_num')
+        estacion_id = data.get('estacion_id')
+        if fecha and tren_num and estacion_id:
+            obj, created = RegistroEstacion.objects.update_or_create(
+                fecha=fecha, tren_num=tren_num, estacion_id=estacion_id,
+                defaults={
+                    'estado': data.get('estado', 'SIN MARCAR'),
+                    'obs': data.get('obs', ''),
+                    'color': data.get('color', ''),
+                },
+            )
+            serializer = self.get_serializer(obj)
+            return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+        return super().create(request, *args, **kwargs)
+
 
 class MaestroTurnoViewSet(viewsets.ModelViewSet):
     queryset = MaestroTurno.objects.all().order_by('num_turno')
@@ -72,13 +158,90 @@ class MaestroTurnoViewSet(viewsets.ModelViewSet):
 
 
 class GraficoMensualViewSet(viewsets.ModelViewSet):
-    queryset = GraficoMensual.objects.all().order_by('-fecha')
     serializer_class = GraficoMensualSerializer
+    pagination_class = None  # el gráfico de un mes son ~2940 filas: devolver todo filtrado
+
+    def get_queryset(self):
+        qs = GraficoMensual.objects.all().order_by('fecha')
+        anio = self.request.query_params.get('anio')
+        mes = self.request.query_params.get('mes')
+        if anio:
+            qs = qs.filter(fecha__year=anio)
+        if mes:
+            qs = qs.filter(fecha__month=mes)
+        return qs
 
 
 class ItinerarioEquipoViewSet(viewsets.ModelViewSet):
     queryset = ItinerarioEquipo.objects.all().order_by('-fecha', 'equipo')
     serializer_class = ItinerarioEquipoSerializer
+
+
+ROLES_GRAFICO = {'IL', 'INSPECTOR DE LINEA', 'SL', 'SUPERVISOR DE LINEA',
+                 'JEFE DE OPERACIONES', 'ADMIN', 'GERENTE', 'GERENCIA'}
+
+
+def _es_jefatura(request):
+    return (getattr(request.user, 'cargo', '') or '').upper() in ROLES_GRAFICO
+
+
+class ParejaTripulacionViewSet(viewsets.ModelViewSet):
+    queryset = ParejaTripulacion.objects.all().order_by('orden')
+    serializer_class = ParejaTripulacionSerializer
+    pagination_class = None
+
+    @decorators.action(detail=False, methods=['post'])
+    def auto_emparejar(self, request):
+        if not _es_jefatura(request):
+            return Response({'error': 'Sin permisos'}, status=status.HTTP_403_FORBIDDEN)
+        from .rostering import auto_emparejar
+        creadas = auto_emparejar()
+        return Response({'ok': True, 'creadas': creadas,
+                         'total': ParejaTripulacion.objects.count()})
+
+    @decorators.action(detail=False, methods=['post'])
+    def intercambiar(self, request):
+        """Intercambia un miembro entre dos parejas. Body: {pareja_a, pareja_b, campo}."""
+        if not _es_jefatura(request):
+            return Response({'error': 'Sin permisos'}, status=status.HTTP_403_FORBIDDEN)
+        campo = request.data.get('campo')
+        if campo not in ('maquinista', 'ayudante'):
+            return Response({'error': "campo debe ser 'maquinista' o 'ayudante'"}, status=400)
+        try:
+            a = ParejaTripulacion.objects.get(pk=request.data.get('pareja_a'))
+            b = ParejaTripulacion.objects.get(pk=request.data.get('pareja_b'))
+        except ParejaTripulacion.DoesNotExist:
+            return Response({'error': 'Pareja no encontrada'}, status=404)
+        va, vb = getattr(a, f'{campo}_id'), getattr(b, f'{campo}_id')
+        setattr(a, f'{campo}_id', vb)
+        setattr(b, f'{campo}_id', va)
+        a.save()
+        b.save()
+        return Response({'ok': True})
+
+
+class FeriadoViewSet(viewsets.ModelViewSet):
+    queryset = Feriado.objects.all().order_by('fecha')
+    serializer_class = FeriadoSerializer
+    pagination_class = None
+
+
+class GenerarGraficoView(APIView):
+    """Genera automáticamente el gráfico mensual completo a partir de las parejas registradas."""
+
+    def post(self, request):
+        if not _es_jefatura(request):
+            return Response({'error': 'Solo jefatura puede generar el gráfico'}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            anio = int(request.data.get('anio'))
+            mes = int(request.data.get('mes'))
+        except (TypeError, ValueError):
+            return Response({'error': 'anio y mes son requeridos'}, status=400)
+        from .rostering import generar_mes
+        reporte = generar_mes(anio, mes)
+        if not reporte.get('ok'):
+            return Response(reporte, status=400)
+        return Response(reporte)
 
 
 class PautaDiariaView(APIView):
@@ -99,39 +262,81 @@ class PautaDiariaView(APIView):
         else:
             tipo_dia = 'LV'
 
-        graficos = GraficoMensual.objects.filter(fecha=fecha).exclude(num_turno='L').select_related('rut')
+        graficos = GraficoMensual.objects.filter(fecha=fecha).select_related('rut')
 
-        turnos = {}
-        for g in graficos:
-            num = g.num_turno.strip()
-            if num not in turnos:
-                turnos[num] = {
-                    'turno': num,
-                    'mq_nombre': None,
-                    'mq_rut': None,
-                    'ay_nombre': None,
-                    'ay_rut': None,
-                    'servicios': '---',
-                    'apertura_hora': '---',
-                    'apertura_lugar': '---',
-                    'presentacion_hora': '---',
-                    'presentacion_lugar': '---',
-                    'cierre_hora': '---',
-                    'cierre_lugar': '---',
-                }
-            cargo = (g.rut.cargo or '').upper()
-            nombre_completo = f"{g.rut.nombre} {g.rut.apellido}".strip()
-            if 'MAQUINISTA' in cargo:
-                turnos[num]['mq_nombre'] = nombre_completo
-                turnos[num]['mq_rut'] = g.rut.rut
-            elif 'AYUDANTE' in cargo:
-                turnos[num]['ay_nombre'] = nombre_completo
-                turnos[num]['ay_rut'] = g.rut.rut
+        # Trabajadores con ausencia (licencia/baja/permiso/vacaciones) ese día → liberan su turno.
+        ausentes = {
+            a['rut__rut']: a['tipo']
+            for a in AusenciaTemporal.objects.filter(fecha=fecha).values('rut__rut', 'tipo')
+        }
 
         maestro_map = {
             mt.num_turno.strip(): mt
             for mt in MaestroTurno.objects.filter(tipo_dia=tipo_dia)
         }
+
+        def es_descanso(num):
+            """Día libre ('L') o turno cuyo servicio es DESCANSO."""
+            if num in ('L', ''):
+                return True
+            mt = maestro_map.get(num)
+            return bool(mt and 'DESCANSO' in (mt.servicios or '').upper())
+
+        def _nuevo_turno(num):
+            return {
+                'turno': num,
+                'mq_nombre': None, 'mq_rut': None, 'mq_ausente': None,
+                'ay_nombre': None, 'ay_rut': None, 'ay_ausente': None,
+                'servicios': '---',
+                'apertura_hora': '---', 'apertura_lugar': '---',
+                'presentacion_hora': '---', 'presentacion_lugar': '---',
+                'cierre_hora': '---', 'cierre_lugar': '---',
+            }
+
+        turnos = {}
+        descansos = []
+        for g in graficos:
+            num = g.num_turno.strip()
+            cargo = (g.rut.cargo or '').upper()
+            nombre_completo = f"{g.rut.nombre} {g.rut.apellido}".strip()
+
+            if es_descanso(num):
+                continue  # descansos se calculan aparte más abajo (no se ven afectados por ausencias)
+
+            if num not in turnos:
+                turnos[num] = _nuevo_turno(num)
+
+            esta_ausente = g.rut.rut in ausentes
+            info_aus = {'nombre': nombre_completo, 'rut': g.rut.rut, 'tipo': ausentes.get(g.rut.rut)} if esta_ausente else None
+
+            if 'MAQUINISTA' in cargo:
+                if esta_ausente:
+                    turnos[num]['mq_ausente'] = info_aus  # slot queda vacante para reasignar
+                else:
+                    turnos[num]['mq_nombre'] = nombre_completo
+                    turnos[num]['mq_rut'] = g.rut.rut
+            elif 'AYUDANTE' in cargo:
+                if esta_ausente:
+                    turnos[num]['ay_ausente'] = info_aus
+                else:
+                    turnos[num]['ay_nombre'] = nombre_completo
+                    turnos[num]['ay_rut'] = g.rut.rut
+
+        # Descansos (incluye 'L'/DESCANSO); los ausentes en descanso no aportan a la pauta.
+        for g in graficos:
+            num = g.num_turno.strip()
+            if es_descanso(num) and g.rut.rut not in ausentes:
+                descansos.append({
+                    'nombre': f"{g.rut.nombre} {g.rut.apellido}".strip(),
+                    'rut': g.rut.rut,
+                    'cargo': g.rut.cargo,
+                })
+
+        # Ordenar descansos: maquinistas primero, luego ayudantes, luego por nombre
+        def _orden_cargo(c):
+            cu = (c.get('cargo') or '').upper()
+            return (0 if 'MAQUINISTA' in cu else 1 if 'AYUDANTE' in cu else 2, c['nombre'])
+        descansos.sort(key=_orden_cargo)
 
         resultado = []
         for num in sorted(turnos.keys()):
@@ -147,7 +352,7 @@ class PautaDiariaView(APIView):
                 item['cierre_lugar'] = mt.cierre_lugar or '---'
             resultado.append(item)
 
-        return Response({'fecha': fecha, 'tipo_dia': tipo_dia, 'turnos': resultado})
+        return Response({'fecha': fecha, 'tipo_dia': tipo_dia, 'turnos': resultado, 'descansos': descansos})
 
     def post(self, request):
         ROLES_ASIGNACION = {'IL', 'INSPECTOR DE LINEA', 'SL', 'SUPERVISOR DE LINEA',
@@ -228,13 +433,31 @@ class TripulacionDisponibleView(APIView):
         if not fecha:
             return Response({'error': 'Parámetro fecha requerido'}, status=status.HTTP_400_BAD_REQUEST)
 
+        import datetime as _dt
+        weekday = _dt.date.fromisoformat(fecha).isoweekday()
+        tipo_dia = 'DOM' if weekday == 7 else 'SAB' if weekday == 6 else 'LV'
+        maestro_map = {mt.num_turno.strip(): mt for mt in MaestroTurno.objects.filter(tipo_dia=tipo_dia)}
+
         ausentes = set(
             AusenciaTemporal.objects.filter(fecha=fecha).values_list('rut__rut', flat=True)
         )
-        asignados = set(
-            GraficoMensual.objects.filter(fecha=fecha).values_list('rut__rut', flat=True)
-        )
-        ocupados = ausentes | asignados
+
+        # "Ocupado" = trabaja un turno operativo real (no libre, no recibidor).
+        # Libres y recibidores quedan disponibles para cubrir. Se anota su estado.
+        estado_disp = {}
+        ocupados = set(ausentes)
+        for g in GraficoMensual.objects.filter(fecha=fecha).select_related('rut'):
+            num = g.num_turno.strip()
+            rut = g.rut.rut
+            if num in ('', 'L'):
+                estado_disp[rut] = 'Libre / disponible'
+                continue
+            mt = maestro_map.get(num)
+            serv = (mt.servicios or '').upper() if mt else ''
+            if 'REC' in serv:
+                estado_disp[rut] = f'Recibidor (turno {num})'
+            else:
+                ocupados.add(rut)  # en turno de servicio → no disponible
 
         qs = Usuario.objects.filter(is_active=True)
         if 'MAQUINISTA' in cargo_filtro:
@@ -247,9 +470,12 @@ class TripulacionDisponibleView(APIView):
         qs = qs.exclude(rut__in=ocupados).order_by('nombre')
 
         data = [
-            {'rut': u.rut, 'nombre': f"{u.nombre} {u.apellido}".strip(), 'cargo': u.cargo}
+            {'rut': u.rut, 'nombre': f"{u.nombre} {u.apellido}".strip(), 'cargo': u.cargo,
+             'estado': estado_disp.get(u.rut, 'Sin programación')}
             for u in qs
         ]
+        # Recibidores primero (disponibles presenciales), luego libres
+        data.sort(key=lambda d: (0 if 'Recibidor' in d['estado'] else 1, d['nombre']))
         return Response({'fecha': fecha, 'disponibles': data})
 
 
@@ -305,11 +531,16 @@ class EventosMapaView(APIView):
             return Response({'error': 'fecha_desde y fecha_hasta son requeridos'}, status=status.HTTP_400_BAD_REQUEST)
 
         incidencias = Incidencia.objects.filter(fecha__gte=fecha_desde, fecha__lte=fecha_hasta)
-        emergencias = Emergencia.objects.filter(fecha_hora__date__gte=fecha_desde, fecha_hora__date__lte=fecha_hasta)
+        # Las emergencias controladas/cerradas dejan de mostrarse como activas en el mapa.
+        emergencias = Emergencia.objects.filter(
+            fecha_hora__date__gte=fecha_desde, fecha_hora__date__lte=fecha_hasta
+        ).exclude(estado_alerta__in=['CONTROLADA', 'CERRADA'])
+        fallas = FallaEquipo.objects.filter(fecha_hora__date__gte=fecha_desde, fecha_hora__date__lte=fecha_hasta)
 
         eventos = []
         for inc in incidencias:
             eventos.append({
+                'id': f"inc_{inc.id}",
                 'tipo': 'Incidencia',
                 'color': '#FFD400',
                 'fecha_hora': inc.fecha_hora.isoformat() if inc.fecha_hora else None,
@@ -321,6 +552,7 @@ class EventosMapaView(APIView):
                 'evento': inc.tipo_incidencia,
                 'detalle': inc.detalle,
                 'ubicacion': inc.ubicacion,
+                'notificado_por': inc.nombre_reporta,
                 'lat': inc.latitud,
                 'lon': inc.longitud,
                 'estado': inc.estado,
@@ -328,6 +560,7 @@ class EventosMapaView(APIView):
 
         for em in emergencias:
             eventos.append({
+                'id': f"em_{em.id}",
                 'tipo': 'Emergencia',
                 'color': '#D00000',
                 'fecha_hora': em.fecha_hora.isoformat() if em.fecha_hora else None,
@@ -339,9 +572,30 @@ class EventosMapaView(APIView):
                 'evento': em.tipo_evento,
                 'detalle': em.ubicacion,
                 'ubicacion': em.ubicacion,
+                'notificado_por': em.nombre_reporta,
                 'lat': em.latitud,
                 'lon': em.longitud,
                 'estado': em.estado_alerta,
+            })
+            
+        for falla in fallas:
+            eventos.append({
+                'id': f"falla_{falla.id}",
+                'tipo': 'Falla de Equipo',
+                'color': '#FF8C00',
+                'fecha_hora': falla.fecha_hora.isoformat() if falla.fecha_hora else None,
+                'fecha': str(falla.fecha_hora.date()) if falla.fecha_hora else None,
+                'tren': falla.tren_num,
+                'equipo': falla.equipo,
+                'maquinista': '',
+                'ayudante': '',
+                'evento': falla.sistema_afectado,
+                'detalle': falla.detalle,
+                'ubicacion': '',
+                'notificado_por': falla.nombre_reporta,
+                'lat': falla.latitud,
+                'lon': falla.longitud,
+                'estado': falla.estado,
             })
 
         return Response({'fecha_desde': fecha_desde, 'fecha_hasta': fecha_hasta, 'eventos': eventos})

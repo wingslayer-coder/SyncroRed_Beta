@@ -3,18 +3,28 @@ import CambiarPasswordModal from './CambiarPasswordModal';
 import {
   LogOut, Train, LayoutDashboard, ClipboardList,
   Radio, BookOpen, Map, UserCheck, CalendarDays, Database,
-  Users, UserMinus, MapPin, Upload, ChevronLeft, Bell, KeyRound, FileText
+  Users, UserMinus, MapPin, Upload, ChevronLeft, Bell, KeyRound, FileText,
+  ShieldAlert, X, TrainTrack
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useAlertas } from '../context/AlertasContext';
+import client from '../api/client';
+import type { EventoMapa } from '../types';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
+  const { eventos, nuevasAlertas, limpiarNuevasAlertas } = useAlertas();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showCambiarPwd, setShowCambiarPwd] = useState(false);
+  const [toasts, setToasts] = useState<{id: string, alerta: any}[]>([]);
+  const [emergencias, setEmergencias] = useState<EventoMapa[]>([]);
   const profileRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
+
+  const rolUpper = (user?.cargo || '').toUpperCase();
+  const esTripulacion = rolUpper === 'MAQUINISTA' || rolUpper === 'AYUDANTE';
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -24,6 +34,52 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  useEffect(() => {
+    if (nuevasAlertas.length > 0) {
+      // Las emergencias tienen prioridad máxima: van a una cola dedicada (modal/banner).
+      // El resto (incidencias / fallas) se muestran como toasts efímeros.
+      const emgs = nuevasAlertas.filter(a => a.tipo === 'Emergencia');
+      const otras = nuevasAlertas.filter(a => a.tipo !== 'Emergencia');
+
+      if (emgs.length > 0) {
+        setEmergencias(prev => {
+          const idsPrev = new Set(prev.map(e => e.id));
+          const nuevas = emgs.filter(e => !idsPrev.has(e.id));
+          return [...prev, ...nuevas];
+        });
+      }
+
+      if (otras.length > 0) {
+        const newToasts = otras.map(alerta => ({
+          id: Math.random().toString(36).substring(7),
+          alerta
+        }));
+        setToasts(prev => [...prev, ...newToasts]);
+        newToasts.forEach(t => {
+          setTimeout(() => {
+            setToasts(prev => prev.filter(x => x.id !== t.id));
+          }, 8000);
+        });
+      }
+
+      limpiarNuevasAlertas();
+    }
+  }, [nuevasAlertas, limpiarNuevasAlertas]);
+
+  const descartarEmergencia = (id?: string) =>
+    setEmergencias(prev => prev.filter(e => e.id !== id));
+
+  // Jefatura marca la emergencia como CONTROLADA → sale del mapa y de las alertas activas.
+  const marcarControlada = async (em: EventoMapa) => {
+    const pk = (em.id || '').replace('em_', '');
+    try {
+      if (pk) await client.post(`/alertas/emergencias/${pk}/resolver/`);
+      descartarEmergencia(em.id);
+    } catch {
+      alert('No se pudo marcar la emergencia como controlada.');
+    }
+  };
 
   const rol = (user?.cargo || '').toUpperCase();
   const esGerencia = rol === 'GERENTE' || rol === 'GERENCIA';
@@ -137,6 +193,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 {navItem('/visor-bd', 'Base de Datos', <Database className="h-4 w-4" />)}
                 {navItem('/personal-operativo', 'Personal Operativo', <Users className="h-4 w-4" />)}
                 {navItem('/gestion-bajas', 'Gestión de Bajas', <UserMinus className="h-4 w-4" />)}
+                {navItem('/prevenciones', 'Prevenciones de Vía', <TrainTrack className="h-4 w-4" />)}
               </>
             )}
 
@@ -218,7 +275,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="flex items-center gap-4">
               <button className="relative flex h-9 w-9 items-center justify-center rounded-xl text-gray-400 hover:bg-gray-100 hover:text-azul transition-colors">
                 <Bell className="h-4.5 w-4.5" />
-                <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-rojo text-[9px] font-bold text-white">0</span>
+                <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-rojo text-[9px] font-bold text-white">
+                  {eventos.filter(e => ['ACTIVA', 'REGISTRADA', 'PENDIENTE'].includes(e.estado)).length}
+                </span>
               </button>
               <div className="h-8 w-px bg-gray-200" />
               <div className="relative" ref={profileRef}>
@@ -269,6 +328,123 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </main>
       {user?.must_change_password && <CambiarPasswordModal />}
       {showCambiarPwd && !user?.must_change_password && <CambiarPasswordModal onClose={() => setShowCambiarPwd(false)} />}
+      
+      {/* Toast Container */}
+      <div className="fixed bottom-6 right-6 z-[9999] flex flex-col gap-3">
+        {toasts.map(t => (
+          <div key={t.id} className="w-80 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden transform transition-all duration-300 animate-in slide-in-from-right-8 fade-in">
+            <div className="flex items-start p-4">
+              <div className="flex-shrink-0 pt-0.5">
+                <div className={`h-10 w-10 rounded-full flex items-center justify-center ${
+                  t.alerta.tipo === 'Emergencia' ? 'bg-rojo/10 text-rojo' : 
+                  t.alerta.tipo === 'Falla de Equipo' ? 'bg-orange-100 text-orange-600' : 
+                  'bg-yellow-100 text-yellow-600'
+                }`}>
+                  <Bell className="h-5 w-5" />
+                </div>
+              </div>
+              <div className="ml-3 w-0 flex-1">
+                <p className="text-sm font-bold text-gray-900 leading-tight">
+                  {t.alerta.tipo} - Tren {t.alerta.tren}
+                </p>
+                <p className="mt-1 text-xs text-gray-500 font-medium line-clamp-2">
+                  {t.alerta.evento}
+                </p>
+                <p className="mt-1 text-[10px] text-gray-400">
+                  {new Date().toLocaleTimeString()}
+                </p>
+              </div>
+              <div className="ml-4 flex flex-shrink-0">
+                <button
+                  type="button"
+                  className="inline-flex rounded-md bg-white text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-azul focus:ring-offset-2"
+                  onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))}
+                >
+                  <span className="sr-only">Cerrar</span>
+                  <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div className={`h-1 w-full ${
+              t.alerta.tipo === 'Emergencia' ? 'bg-rojo' :
+              t.alerta.tipo === 'Falla de Equipo' ? 'bg-orange-500' :
+              'bg-yellow-400'
+            }`} />
+          </div>
+        ))}
+      </div>
+
+      {/* ── EMERGENCIAS — prioridad máxima ──
+          Tripulación: banner superior no-obstructivo (para no tapar la bitácora).
+          Resto de roles: modal emergente que exige reconocimiento. */}
+      {emergencias.length > 0 && esTripulacion && (
+        <div className="fixed top-0 inset-x-0 z-[10000] flex flex-col">
+          {emergencias.map(em => (
+            <div key={em.id} className="flex items-center gap-3 bg-rojo px-5 py-2.5 text-white shadow-lg animate-in slide-in-from-top-4">
+              <ShieldAlert className="h-5 w-5 flex-shrink-0 animate-pulse" />
+              <div className="flex-1 text-sm leading-tight">
+                <span className="font-extrabold uppercase tracking-wide">Emergencia</span>
+                <span className="mx-2 opacity-60">·</span>
+                <span className="font-semibold">{em.evento || 'Evento'}</span>
+                {em.tren && <span className="opacity-90"> — Servicio {em.tren}</span>}
+                {(em.ubicacion || em.notificado_por) && (
+                  <span className="opacity-90">
+                    {em.ubicacion ? ` — ${em.ubicacion}` : ''}
+                    {em.notificado_por ? ` — notificó ${em.notificado_por}` : ''}
+                  </span>
+                )}
+              </div>
+              <button onClick={() => descartarEmergencia(em.id)} className="rounded-md p-1 hover:bg-white/20" title="Descartar">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {emergencias.length > 0 && !esTripulacion && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl animate-in zoom-in-95 fade-in">
+            <div className="flex items-center gap-3 bg-rojo px-6 py-4 text-white">
+              <ShieldAlert className="h-7 w-7 animate-pulse" />
+              <div>
+                <div className="text-lg font-extrabold uppercase tracking-wide leading-tight">Emergencia Activa</div>
+                <div className="text-xs text-white/80">Notificación simultánea a todos los roles</div>
+              </div>
+            </div>
+            <div className="max-h-[60vh] space-y-4 overflow-y-auto p-6">
+              {emergencias.map(em => (
+                <div key={em.id} className="rounded-xl border border-rojo/20 bg-rojo/5 p-4">
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="col-span-2"><span className="font-bold text-azul">Evento:</span> {em.evento || '—'}</div>
+                    <div><span className="font-bold text-azul">Notificado por:</span> {em.notificado_por || '—'}</div>
+                    <div><span className="font-bold text-azul">Equipo:</span> {em.equipo || '—'}</div>
+                    <div><span className="font-bold text-azul">Servicio:</span> {em.tren || '—'}</div>
+                    <div className="col-span-2"><span className="font-bold text-azul">Ubicación:</span> {em.ubicacion || (em.lat != null && em.lon != null ? `${em.lat.toFixed(5)}, ${em.lon.toFixed(5)}` : 'Pendiente de GPS')}</div>
+                    <div className="col-span-2 text-xs text-gray-500">{em.fecha_hora ? new Date(em.fecha_hora).toLocaleString('es-CL') : ''}</div>
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={() => descartarEmergencia(em.id)}
+                      className="flex-1 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600 hover:bg-gray-50"
+                    >
+                      Entendido
+                    </button>
+                    <button
+                      onClick={() => marcarControlada(em)}
+                      className="flex-1 rounded-lg bg-verde px-4 py-2 text-sm font-bold text-white hover:bg-verde/90"
+                    >
+                      Marcar controlada
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

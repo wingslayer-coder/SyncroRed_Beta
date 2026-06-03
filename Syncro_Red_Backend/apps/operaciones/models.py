@@ -145,6 +145,37 @@ class RutaEstacion(models.Model):
         return f"{self.ruta_id} [{self.orden}] - {self.estacion_nombre}"
 
 
+class ParejaTripulacion(models.Model):
+    """Pareja fija maquinista + ayudante usada por el generador de gráfico mensual.
+    Editable por jefatura (intercambiar miembros entre parejas)."""
+    orden = models.IntegerField(default=0)
+    maquinista = models.ForeignKey(Usuario, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='parejas_maquinista', to_field='rut', db_column='maquinista')
+    ayudante = models.ForeignKey(Usuario, on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='parejas_ayudante', to_field='rut', db_column='ayudante')
+    activa = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'parejas_tripulacion'
+        ordering = ['orden']
+
+    def __str__(self):
+        return f"Pareja {self.orden}: {self.maquinista_id} / {self.ayudante_id}"
+
+
+class Feriado(models.Model):
+    """Calendario de feriados → el generador usa los turnos tipo 'FER' esos días."""
+    fecha = models.DateField(unique=True)
+    nombre = models.CharField(max_length=100, blank=True)
+
+    class Meta:
+        db_table = 'feriados'
+        ordering = ['fecha']
+
+    def __str__(self):
+        return f"{self.fecha} {self.nombre}".strip()
+
+
 class ItinerarioMaestro(models.Model):
     tren_num = models.CharField(max_length=20)
     tipo_dia = models.CharField(max_length=10)

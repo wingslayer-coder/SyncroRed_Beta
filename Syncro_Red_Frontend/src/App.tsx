@@ -16,36 +16,42 @@ import PersonalOperativo from './pages/PersonalOperativo';
 import GestionBajas from './pages/GestionBajas';
 import Placeholder from './pages/Placeholder';
 import VisorBitacoras from './pages/VisorBitacoras';
+import Prevenciones from './pages/Prevenciones';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
   return isAuthenticated ? <Layout>{children}</Layout> : <Navigate to="/login" replace />;
 }
 
+import { AlertasProvider } from './context/AlertasContext';
+
 function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/menu" element={<ProtectedRoute><Menu /></ProtectedRoute>} />
-        <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/pauta-diaria" element={<ProtectedRoute><PautaDiaria /></ProtectedRoute>} />
-        <Route path="/jefe-servicio" element={<ProtectedRoute><JefeServicio /></ProtectedRoute>} />
-        <Route path="/bitacora" element={<ProtectedRoute><Bitacora /></ProtectedRoute>} />
-        <Route path="/mapa-ferroviario" element={<ProtectedRoute><MapaFerroviario /></ProtectedRoute>} />
-        <Route path="/asistencia" element={<ProtectedRoute><Asistencia /></ProtectedRoute>} />
-        <Route path="/alistacion" element={<ProtectedRoute><Alistacion /></ProtectedRoute>} />
-        <Route path="/turnos" element={<ProtectedRoute><Turnos /></ProtectedRoute>} />
-        <Route path="/historicos" element={<ProtectedRoute><Historicos /></ProtectedRoute>} />
-        <Route path="/visor-bd" element={<ProtectedRoute><Placeholder title="Visor de Base de Datos" /></ProtectedRoute>} />
-        <Route path="/personal-operativo" element={<ProtectedRoute><PersonalOperativo /></ProtectedRoute>} />
-        <Route path="/gestion-bajas" element={<ProtectedRoute><GestionBajas /></ProtectedRoute>} />
-        <Route path="/georreferencia-admin" element={<ProtectedRoute><Placeholder title="Georreferencia de Hitos" /></ProtectedRoute>} />
-        <Route path="/carga-tripulacion" element={<ProtectedRoute><Placeholder title="Cargar Tripulación CSV" /></ProtectedRoute>} />
-        <Route path="/visor-bitacoras" element={<ProtectedRoute><VisorBitacoras /></ProtectedRoute>} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
-    </BrowserRouter>
+    <AlertasProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/menu" element={<ProtectedRoute><Menu /></ProtectedRoute>} />
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/pauta-diaria" element={<ProtectedRoute><PautaDiaria /></ProtectedRoute>} />
+          <Route path="/jefe-servicio" element={<ProtectedRoute><JefeServicio /></ProtectedRoute>} />
+          <Route path="/bitacora" element={<ProtectedRoute><Bitacora /></ProtectedRoute>} />
+          <Route path="/mapa-ferroviario" element={<ProtectedRoute><MapaFerroviario /></ProtectedRoute>} />
+          <Route path="/asistencia" element={<ProtectedRoute><Asistencia /></ProtectedRoute>} />
+          <Route path="/alistacion" element={<ProtectedRoute><Alistacion /></ProtectedRoute>} />
+          <Route path="/turnos" element={<ProtectedRoute><Turnos /></ProtectedRoute>} />
+          <Route path="/historicos" element={<ProtectedRoute><Historicos /></ProtectedRoute>} />
+          <Route path="/visor-bd" element={<ProtectedRoute><Placeholder title="Visor de Base de Datos" /></ProtectedRoute>} />
+          <Route path="/personal-operativo" element={<ProtectedRoute><PersonalOperativo /></ProtectedRoute>} />
+          <Route path="/gestion-bajas" element={<ProtectedRoute><GestionBajas /></ProtectedRoute>} />
+          <Route path="/georreferencia-admin" element={<ProtectedRoute><Placeholder title="Georreferencia de Hitos" /></ProtectedRoute>} />
+          <Route path="/carga-tripulacion" element={<ProtectedRoute><Placeholder title="Cargar Tripulación CSV" /></ProtectedRoute>} />
+          <Route path="/visor-bitacoras" element={<ProtectedRoute><VisorBitacoras /></ProtectedRoute>} />
+          <Route path="/prevenciones" element={<ProtectedRoute><Prevenciones /></ProtectedRoute>} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </AlertasProvider>
   );
 }
 

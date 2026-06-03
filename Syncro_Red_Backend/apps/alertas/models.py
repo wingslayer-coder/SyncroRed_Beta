@@ -17,6 +17,8 @@ class Emergencia(models.Model):
     estado_tripulacion = models.CharField(max_length=50, blank=True)
     tipo_evento = models.CharField(max_length=100, blank=True)
     ubicacion = models.TextField(blank=True)
+    rut_reporta = models.CharField(max_length=20, blank=True)
+    nombre_reporta = models.CharField(max_length=100, blank=True)
     estado_alerta = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='ACTIVA')
     latitud = models.FloatField(null=True, blank=True)
     longitud = models.FloatField(null=True, blank=True)
@@ -35,13 +37,6 @@ class Incidencia(models.Model):
         ('RESUELTA', 'Resuelta'),
     ]
 
-    TIPO_CHOICES = [
-        ('Infraestructura y Vía (Vía y Obras)', 'Infraestructura y Vía (Vía y Obras)'),
-        ('Sistemas de Señalización y Comunicaciones', 'Sistemas de Señalización y Comunicaciones'),
-        ('Operación y Tráfico', 'Operación y Tráfico'),
-        ('Emergencia Médica o Comercial', 'Emergencia Médica o Comercial'),
-    ]
-
     fecha_hora = models.DateTimeField(auto_now_add=True)
     fecha = models.DateField()
     tren_num = models.CharField(max_length=20, blank=True)
@@ -50,7 +45,7 @@ class Incidencia(models.Model):
     ayudante = models.CharField(max_length=100, blank=True)
     rut_reporta = models.CharField(max_length=20, blank=True)
     nombre_reporta = models.CharField(max_length=100, blank=True)
-    tipo_incidencia = models.CharField(max_length=100, choices=TIPO_CHOICES)
+    tipo_incidencia = models.CharField(max_length=100)
     detalle = models.TextField(blank=True)
     ubicacion = models.TextField(blank=True)
     latitud = models.FloatField(null=True, blank=True)
@@ -78,6 +73,8 @@ class FallaEquipo(models.Model):
     nombre_reporta = models.CharField(max_length=100, blank=True)
     sistema_afectado = models.CharField(max_length=100, blank=True)
     detalle = models.TextField(blank=True)
+    latitud = models.FloatField(null=True, blank=True)
+    longitud = models.FloatField(null=True, blank=True)
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='PENDIENTE')
 
     class Meta:

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import client from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { Clock, Calendar, Bell, FileText, Loader2, AlertCircle, CheckCircle2, X } from 'lucide-react';
+import { Calendar, Bell, FileText, Loader2, AlertCircle, CheckCircle2, X } from 'lucide-react';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 interface MiRegistro {

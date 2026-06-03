@@ -107,6 +107,145 @@ class MeView(views.APIView):
         })
 
 
+# ─── RECOMENDACIÓN DE REEMPLAZO DE TURNO ─────────────────────────────────────
+
+class RecomendarReemplazoView(views.APIView):
+    """Despachador determinista: dado un trabajador ausente y la fecha (+ días),
+    busca el turno asignado en el gráfico mensual y recomienda al personal idóneo
+    para cubrirlo, optimizando sobretiempo, descanso y horas nocturnas."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from apps.operaciones.models import GraficoMensual, MaestroTurno
+        from . import recomendacion as rec
+
+        rut = request.data.get('rut')
+        fecha = request.data.get('fecha')
+        try:
+            dias = max(1, int(request.data.get('dias') or 1))
+        except (TypeError, ValueError):
+            dias = 1
+
+        if not rut or not fecha:
+            return Response({'error': 'rut y fecha son requeridos'}, status=400)
+
+        try:
+            ausente = Usuario.objects.get(rut=rut)
+        except Usuario.DoesNotExist:
+            return Response({'error': 'Trabajador no encontrado'}, status=404)
+
+        cargo_aus = (ausente.cargo or '').upper()
+        es_maq = 'MAQUINISTA' in cargo_aus
+        es_ay = 'AYUDANTE' in cargo_aus
+        if not (es_maq or es_ay):
+            return Response({
+                'rut': rut,
+                'nombre': f"{ausente.nombre} {ausente.apellido}".strip(),
+                'cargo': ausente.cargo,
+                'recomendaciones': [],
+                'mensaje': 'El trabajador no es tripulación (maquinista/ayudante); no requiere reemplazo de turno.',
+            })
+
+        try:
+            f0 = datetime.date.fromisoformat(fecha)
+        except ValueError:
+            return Response({'error': 'Formato de fecha inválido (YYYY-MM-DD)'}, status=400)
+
+        recomendaciones = []
+        for i in range(min(dias, 14)):
+            d = f0 + datetime.timedelta(days=i)
+            td = rec.tipo_dia(d)
+
+            graf = GraficoMensual.objects.filter(fecha=d, rut=ausente).first()
+            if not graf:
+                continue
+            num = graf.num_turno.strip()
+            if num in ('L', ''):
+                continue  # día libre: nada que cubrir
+
+            mt = MaestroTurno.objects.filter(num_turno=num, tipo_dia=td).first()
+            if not mt:
+                continue
+            # La cobertura va de la apertura (abrir turno) al cierre.
+            req_ent = (mt.apertura_hora or mt.presentacion_hora or '').strip()
+            req_sal = (mt.cierre_hora or '').strip()
+            if not rec.hm_valido(req_ent) or not rec.hm_valido(req_sal):
+                continue  # sin horario válido para evaluar
+
+            ausentes_d = set(AusenciaTemporal.objects.filter(fecha=d).values_list('rut__rut', flat=True))
+            qs = Usuario.objects.filter(is_active=True).exclude(rut=rut)
+            if es_maq:
+                qs = qs.filter(cargo__icontains='MAQUINISTA')
+            else:
+                qs = qs.filter(cargo__icontains='AYUDANTE')
+
+            candidatos = []
+            for u in qs:
+                if u.rut in ausentes_d:
+                    continue  # No Aplicable: vacaciones / baja / licencia / ERIC
+
+                og = GraficoMensual.objects.filter(fecha=d, rut=u).first()
+                # Sin programación o día libre ('L') = descanso en casa: legalmente NO se puede llamar.
+                if not og:
+                    continue
+                num_u = og.num_turno.strip()
+                if num_u in ('L', '') or num_u == num:
+                    continue
+
+                omt = MaestroTurno.objects.filter(num_turno=num_u, tipo_dia=td).first()
+                if not omt:
+                    continue
+                serv = (omt.servicios or '').upper()
+                if 'DESCANSO' in serv:
+                    continue  # turno de descanso: tampoco se llama
+
+                orig_ent = (omt.apertura_hora or omt.presentacion_hora or '').strip()
+                orig_sal = (omt.cierre_hora or '').strip()
+                if not rec.hm_valido(orig_ent) or not rec.hm_valido(orig_sal):
+                    continue
+
+                es_recibidor = 'REC' in serv  # turno de recibidor = disponible presencial
+                label = 'su ventana de recibidor' if es_recibidor else 'su turno'
+                ev = rec.evaluar(req_ent, req_sal, orig_ent, orig_sal, origen_label=label)
+                ev['es_interrupcion'] = not es_recibidor
+
+                candidatos.append({
+                    'rut': u.rut,
+                    'nombre': f"{u.nombre} {u.apellido}".strip(),
+                    'cargo': u.cargo,
+                    'tipo': 'RECIBIDOR' if es_recibidor else 'EN_TURNO',
+                    'es_recibidor': es_recibidor,
+                    'estado': (f'Recibidor turno {num_u} ({orig_ent}–{orig_sal})' if es_recibidor
+                               else f'En turno {num_u} ({orig_ent}–{orig_sal})'),
+                    'score': round(rec.score(ev), 2),
+                    **ev,
+                })
+
+            # Prioridad: recibidores (disponibles) primero; los que están en otro turno
+            # (interrupción) solo como último recurso. Dentro de cada grupo, menor costo.
+            candidatos.sort(key=lambda c: (c['es_interrupcion'], c['score'], c['horas_nocturnas']))
+
+            recomendaciones.append({
+                'fecha': str(d),
+                'tipo_dia': td,
+                'turno': num,
+                'servicios': mt.servicios or '',
+                'req_entrada': req_ent,
+                'req_salida': req_sal,
+                'tiene_recibidor': any(not c['es_interrupcion'] for c in candidatos),
+                'principal': candidatos[0] if candidatos else None,
+                'alternativa': candidatos[1] if len(candidatos) > 1 else None,
+                'candidatos': candidatos[:6],
+            })
+
+        return Response({
+            'rut': rut,
+            'nombre': f"{ausente.nombre} {ausente.apellido}".strip(),
+            'cargo': ausente.cargo,
+            'recomendaciones': recomendaciones,
+        })
+
+
 # ─── HELPERS ────────────────────────────────────────────────────────────────
 
 def _parse_hm(s):

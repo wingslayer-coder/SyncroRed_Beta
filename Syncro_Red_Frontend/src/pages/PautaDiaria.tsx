@@ -19,7 +19,14 @@ import {
   ArrowLeft,
   Train,
   AlertCircle,
+  Moon,
 } from 'lucide-react';
+
+interface DescansoItem {
+  nombre: string;
+  rut: string;
+  cargo: string;
+}
 
 interface MiTurno {
   turno: string;
@@ -35,6 +42,7 @@ export default function PautaDiaria() {
   const { user } = useAuth();
   const [fecha, setFecha] = useState(() => new Date().toISOString().split('T')[0]);
   const [turnos, setTurnos] = useState<PautaDiariaItem[]>([]);
+  const [descansos, setDescansos] = useState<DescansoItem[]>([]);
   const [tipoDia, setTipoDia] = useState('');
   const [loading, setLoading] = useState(false);
   const [modal, setModal] = useState<{ turno: string; campo: 'mq' | 'ay' } | null>(null);
@@ -52,10 +60,12 @@ export default function PautaDiaria() {
     client.get(`/operaciones/pauta-diaria/?fecha=${fecha}`)
       .then((res) => {
         setTurnos(res.data.turnos);
+        setDescansos(res.data.descansos || []);
         setTipoDia(res.data.tipo_dia);
       })
       .catch(() => {
         setTurnos([]);
+        setDescansos([]);
         setTipoDia('');
       })
       .finally(() => setLoading(false));
@@ -379,6 +389,16 @@ export default function PautaDiaria() {
                             <div className="text-[10px] text-gray-400">{t.mq_rut || '—'}</div>
                           </div>
                         </div>
+                      ) : t.mq_ausente ? (
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="text-[10px] text-gray-400 line-through">{t.mq_ausente.nombre}</span>
+                          <span className="rounded bg-red-50 px-1.5 py-0.5 text-[9px] font-bold text-red-600">{t.mq_ausente.tipo}</span>
+                          {puedeAsignar && (
+                            <button onClick={() => openModal(t.turno, 'mq')} className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-dashed border-rojo/40 text-[10px] font-bold text-rojo hover:bg-rojo/5">
+                              <UserPlus className="w-3 h-3" /> Reemplazar
+                            </button>
+                          )}
+                        </div>
                       ) : puedeAsignar ? (
                         <div className="flex justify-center">
                           <button
@@ -405,6 +425,16 @@ export default function PautaDiaria() {
                             <div className="text-xs font-bold text-gray-800 leading-tight truncate">{t.ay_nombre}</div>
                             <div className="text-[10px] text-gray-400">{t.ay_rut || '—'}</div>
                           </div>
+                        </div>
+                      ) : t.ay_ausente ? (
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="text-[10px] text-gray-400 line-through">{t.ay_ausente.nombre}</span>
+                          <span className="rounded bg-red-50 px-1.5 py-0.5 text-[9px] font-bold text-red-600">{t.ay_ausente.tipo}</span>
+                          {puedeAsignar && (
+                            <button onClick={() => openModal(t.turno, 'ay')} className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-dashed border-rojo/40 text-[10px] font-bold text-rojo hover:bg-rojo/5">
+                              <UserPlus className="w-3 h-3" /> Reemplazar
+                            </button>
+                          )}
                         </div>
                       ) : puedeAsignar ? (
                         <div className="flex justify-center">
@@ -475,6 +505,36 @@ export default function PautaDiaria() {
         </div>
       )}
 
+      {/* EN DESCANSO — tripulación que descansa este día */}
+      {!loading && descansos.length > 0 && (
+        <div className="mt-6 bg-white rounded-2xl border border-gray-150 shadow-sm overflow-hidden">
+          <div className="flex items-center gap-2 bg-gradient-to-r from-slate-100 to-white px-5 py-3 border-b border-gray-100">
+            <Moon className="w-4 h-4 text-slate-500" />
+            <h3 className="font-bold text-slate-700 text-sm uppercase tracking-wide">En Descanso</h3>
+            <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-bold text-slate-600">{descansos.length}</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 divide-y divide-gray-50 sm:divide-y-0">
+            {descansos.map((d) => {
+              const esMq = (d.cargo || '').toUpperCase().includes('MAQUINISTA');
+              return (
+                <div key={d.rut} className="flex items-center gap-2.5 px-4 py-2.5 border-b border-gray-50">
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-[10px] text-white shadow-sm flex-shrink-0 ${esMq ? 'bg-azul' : 'bg-rojo'}`}>
+                    {obtenerIniciales(d.nombre)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-bold text-gray-800 leading-tight truncate">{d.nombre}</div>
+                    <div className="text-[10px] text-gray-400">{d.rut}</div>
+                  </div>
+                  <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${esMq ? 'bg-azul/10 text-azul' : 'bg-rojo/10 text-rojo'}`}>
+                    {esMq ? 'MQ' : 'AY'}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ASSIGNMENT MODAL */}
       {modal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-[4px] flex items-center justify-center z-50 p-4 animate-fade-in">
@@ -524,8 +584,10 @@ export default function PautaDiaria() {
                       <div className="text-[11px] text-gray-400 mt-0.5">RUT: {d.rut}</div>
                     </div>
                   </div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 group-hover:text-rojo/70 transition-all">
-                    Disponible
+                  <span className={`text-[10px] font-bold uppercase tracking-wider transition-all ${
+                    (d.estado || '').includes('Recibidor') ? 'text-verde' : 'text-gray-400 group-hover:text-rojo/70'
+                  }`}>
+                    {d.estado || 'Disponible'}
                   </span>
                 </button>
               ))}

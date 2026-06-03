@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import client from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { Calendar, RefreshCw, Upload, Users } from 'lucide-react';
+import { Calendar, RefreshCw, Upload, Users, Wand2, ArrowRightLeft, Settings2, X, Loader2, CalendarDays, Trash2, Plus } from 'lucide-react';
 
 interface GraficoMensual {
   id?: number;
@@ -31,21 +31,106 @@ export default function Turnos() {
   const [anio, setAnio] = useState(new Date().getFullYear());
   const [uploading, setUploading] = useState(false);
   const [nombresMap, setNombresMap] = useState<Record<string, string>>({});
+  const [generando, setGenerando] = useState(false);
+  const [showParejas, setShowParejas] = useState(false);
+  const [parejasReg, setParejasReg] = useState<any[]>([]);
+  const [swap, setSwap] = useState<{ a: string; b: string; campo: 'maquinista' | 'ayudante' }>({ a: '', b: '', campo: 'ayudante' });
+  const [showFeriados, setShowFeriados] = useState(false);
+  const [feriados, setFeriados] = useState<any[]>([]);
+  const [nuevoFeriado, setNuevoFeriado] = useState({ fecha: '', nombre: '' });
 
   useEffect(() => {
     cargarGraficos();
     cargarNombresUsuarios();
   }, [mes, anio]);
 
+  const cargarParejas = async () => {
+    try {
+      const res = await client.get('/operaciones/parejas-tripulacion/');
+      setParejasReg(res.data.results || res.data);
+    } catch (err) { console.error(err); }
+  };
+
+  const generarGrafico = async () => {
+    if (!confirm(`¿Generar automáticamente el gráfico de ${MESES[mes - 1]} ${anio}? Reemplaza el gráfico existente del mes.`)) return;
+    setGenerando(true);
+    try {
+      const res = await client.post('/operaciones/grafico-mensual/generar/', { anio, mes });
+      const r = res.data;
+      alert(
+        `Gráfico generado:\n` +
+        `• Parejas: ${r.parejas}\n` +
+        `• Cobertura: ${r.cobertura_pct}% (${r.turnos_cubiertos}/${r.turnos_totales})\n` +
+        `• Menos-reposo: ${r.menos_reposo}\n` +
+        `• Máx. días seguidos: ${r.max_dias_seguidos} (parejas que superan 6: ${r.parejas_superan_6})\n` +
+        `• Libres promedio/pareja: ${r.libres_promedio_pareja}`
+      );
+      cargarGraficos();
+    } catch (err: any) {
+      alert('Error al generar: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setGenerando(false);
+    }
+  };
+
+  const autoEmparejar = async () => {
+    try {
+      const res = await client.post('/operaciones/parejas-tripulacion/auto_emparejar/', {});
+      alert(`Parejas creadas: ${res.data.creadas}. Total: ${res.data.total}`);
+      cargarParejas();
+    } catch (err: any) {
+      alert('Error: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const intercambiar = async () => {
+    if (!swap.a || !swap.b || swap.a === swap.b) return alert('Selecciona dos parejas distintas.');
+    try {
+      await client.post('/operaciones/parejas-tripulacion/intercambiar/', {
+        pareja_a: swap.a, pareja_b: swap.b, campo: swap.campo,
+      });
+      setSwap({ a: '', b: '', campo: swap.campo });
+      cargarParejas();
+    } catch (err: any) {
+      alert('Error: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const cargarFeriados = async () => {
+    try {
+      const res = await client.get('/operaciones/feriados/');
+      setFeriados(res.data.results || res.data);
+    } catch (err) { console.error(err); }
+  };
+
+  const agregarFeriado = async () => {
+    if (!nuevoFeriado.fecha) return alert('Selecciona una fecha.');
+    try {
+      await client.post('/operaciones/feriados/', nuevoFeriado);
+      setNuevoFeriado({ fecha: '', nombre: '' });
+      cargarFeriados();
+    } catch (err: any) {
+      alert('Error: ' + (err.response?.data?.fecha?.[0] || err.response?.data?.error || err.message));
+    }
+  };
+
+  const eliminarFeriado = async (id: number) => {
+    try {
+      await client.delete(`/operaciones/feriados/${id}/`);
+      cargarFeriados();
+    } catch (err: any) {
+      alert('Error: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
   const cargarGraficos = async () => {
     setLoading(true);
     try {
-      const res = await client.get(`/operaciones/grafico-mensual/`);
+      const res = await client.get(`/operaciones/grafico-mensual/?anio=${anio}&mes=${mes}`);
       const all: GraficoMensual[] = res.data.results || res.data;
-      const filtrados = all.filter((g) => {
-        const date = new Date(g.fecha);
-        return date.getMonth() + 1 === mes && date.getFullYear() === anio;
-      });
+      // Filtro robusto por string (evita corrimiento de zona horaria con new Date)
+      const prefijo = `${anio}-${String(mes).padStart(2, '0')}`;
+      const filtrados = all.filter((g) => (g.fecha || '').startsWith(prefijo));
       setGraficos(filtrados);
     } catch (err) {
       console.error(err);
@@ -188,14 +273,41 @@ export default function Turnos() {
             <RefreshCw className={`h-5 w-5 text-gray-600 ${loading ? 'animate-spin' : ''}`} />
           </button>
           {esJefatura && (
-            <button
-              onClick={() => document.getElementById('upload-grafico')?.click()}
-              disabled={uploading}
-              className="rounded-lg border border-gray-200 bg-white p-2.5 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-50"
-              title="Subir gráfico (Excel)"
-            >
-              <Upload className={`h-5 w-5 text-azul ${uploading ? 'animate-pulse' : ''}`} />
-            </button>
+            <>
+              <button
+                onClick={generarGrafico}
+                disabled={generando}
+                className="flex items-center gap-2 rounded-lg bg-azul px-3 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-azul/90 disabled:opacity-50"
+                title="Generar gráfico automáticamente"
+              >
+                {generando ? <Loader2 className="h-5 w-5 animate-spin" /> : <Wand2 className="h-5 w-5" />}
+                <span className="hidden sm:inline">{generando ? 'Generando…' : 'Generar'}</span>
+              </button>
+              <button
+                onClick={() => { setShowParejas(true); cargarParejas(); }}
+                className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm font-bold text-azul shadow-sm transition-colors hover:bg-gray-50"
+                title="Gestionar parejas"
+              >
+                <Settings2 className="h-5 w-5" />
+                <span className="hidden sm:inline">Parejas</span>
+              </button>
+              <button
+                onClick={() => { setShowFeriados(true); cargarFeriados(); }}
+                className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm font-bold text-azul shadow-sm transition-colors hover:bg-gray-50"
+                title="Gestionar feriados"
+              >
+                <CalendarDays className="h-5 w-5" />
+                <span className="hidden sm:inline">Feriados</span>
+              </button>
+              <button
+                onClick={() => document.getElementById('upload-grafico')?.click()}
+                disabled={uploading}
+                className="rounded-lg border border-gray-200 bg-white p-2.5 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-50"
+                title="Subir gráfico (Excel)"
+              >
+                <Upload className={`h-5 w-5 text-azul ${uploading ? 'animate-pulse' : ''}`} />
+              </button>
+            </>
           )}
           <input
             id="upload-grafico"
@@ -301,6 +413,135 @@ export default function Turnos() {
           </table>
         )}
       </div>
+
+      {/* MODAL GESTIÓN DE PAREJAS */}
+      {showParejas && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-100 bg-gradient-to-r from-azul/5 to-white px-6 py-4">
+              <div className="flex items-center gap-2">
+                <Users className="h-5 w-5 text-azul" />
+                <h3 className="font-bold text-azul">Parejas de Tripulación ({parejasReg.length})</h3>
+              </div>
+              <button onClick={() => setShowParejas(false)} className="rounded-md p-1 text-gray-400 hover:bg-gray-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="border-b border-gray-100 bg-gray-50/70 p-4">
+              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">Intercambiar miembro entre dos parejas</p>
+              <div className="flex flex-wrap items-end gap-2">
+                <select value={swap.a} onChange={(e) => setSwap({ ...swap, a: e.target.value })} className="flex-1 min-w-[140px] rounded-lg border border-gray-300 p-2 text-sm">
+                  <option value="">Pareja A…</option>
+                  {parejasReg.map((p) => <option key={p.id} value={p.id}>#{p.orden} · {p.maquinista_nombre || '—'} / {p.ayudante_nombre || '—'}</option>)}
+                </select>
+                <select value={swap.b} onChange={(e) => setSwap({ ...swap, b: e.target.value })} className="flex-1 min-w-[140px] rounded-lg border border-gray-300 p-2 text-sm">
+                  <option value="">Pareja B…</option>
+                  {parejasReg.map((p) => <option key={p.id} value={p.id}>#{p.orden} · {p.maquinista_nombre || '—'} / {p.ayudante_nombre || '—'}</option>)}
+                </select>
+                <select value={swap.campo} onChange={(e) => setSwap({ ...swap, campo: e.target.value as 'maquinista' | 'ayudante' })} className="rounded-lg border border-gray-300 p-2 text-sm">
+                  <option value="ayudante">Ayudante</option>
+                  <option value="maquinista">Maquinista</option>
+                </select>
+                <button onClick={intercambiar} className="flex items-center gap-1.5 rounded-lg bg-azul px-3 py-2 text-sm font-bold text-white hover:bg-azul/90">
+                  <ArrowRightLeft className="h-4 w-4" /> Intercambiar
+                </button>
+              </div>
+              {parejasReg.length === 0 && (
+                <button onClick={autoEmparejar} className="mt-3 w-full rounded-lg border border-dashed border-azul/40 py-2 text-sm font-bold text-azul hover:bg-azul/5">
+                  Auto-emparejar tripulación cargada
+                </button>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                    <th className="border-b px-4 py-2 text-left">#</th>
+                    <th className="border-b px-4 py-2 text-left">Maquinista</th>
+                    <th className="border-b px-4 py-2 text-left">Ayudante</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {parejasReg.map((p) => (
+                    <tr key={p.id} className="hover:bg-gray-50/60">
+                      <td className="px-4 py-2 font-bold text-azul">{p.orden}</td>
+                      <td className="px-4 py-2">{p.maquinista_nombre || <span className="text-gray-300">—</span>}</td>
+                      <td className="px-4 py-2">{p.ayudante_nombre || <span className="text-gray-300">—</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="border-t border-gray-100 px-6 py-3 text-right">
+              <button onClick={autoEmparejar} className="text-xs font-bold text-azul hover:underline">+ Emparejar tripulación sin pareja</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL GESTIÓN DE FERIADOS */}
+      {showFeriados && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-100 bg-gradient-to-r from-azul/5 to-white px-6 py-4">
+              <div className="flex items-center gap-2">
+                <CalendarDays className="h-5 w-5 text-azul" />
+                <h3 className="font-bold text-azul">Feriados ({feriados.length})</h3>
+              </div>
+              <button onClick={() => setShowFeriados(false)} className="rounded-md p-1 text-gray-400 hover:bg-gray-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="border-b border-gray-100 bg-gray-50/70 p-4">
+              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">Agregar feriado</p>
+              <div className="flex flex-wrap items-end gap-2">
+                <input
+                  type="date"
+                  value={nuevoFeriado.fecha}
+                  onChange={(e) => setNuevoFeriado({ ...nuevoFeriado, fecha: e.target.value })}
+                  className="rounded-lg border border-gray-300 p-2 text-sm"
+                />
+                <input
+                  type="text"
+                  placeholder="Nombre (opcional)"
+                  value={nuevoFeriado.nombre}
+                  onChange={(e) => setNuevoFeriado({ ...nuevoFeriado, nombre: e.target.value })}
+                  className="flex-1 min-w-[140px] rounded-lg border border-gray-300 p-2 text-sm"
+                />
+                <button onClick={agregarFeriado} className="flex items-center gap-1.5 rounded-lg bg-azul px-3 py-2 text-sm font-bold text-white hover:bg-azul/90">
+                  <Plus className="h-4 w-4" /> Agregar
+                </button>
+              </div>
+              <p className="mt-2 text-[11px] text-gray-400">Los días marcados como feriado usan los turnos tipo <b>FER</b> al generar el gráfico.</p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              {feriados.length === 0 ? (
+                <div className="py-10 text-center text-sm text-gray-400">No hay feriados cargados.</div>
+              ) : (
+                <table className="w-full text-sm">
+                  <tbody className="divide-y divide-gray-50">
+                    {feriados.map((f) => (
+                      <tr key={f.id} className="hover:bg-gray-50/60">
+                        <td className="px-4 py-2 font-mono text-xs text-gray-600">{f.fecha}</td>
+                        <td className="px-4 py-2 text-gray-800">{f.nombre || <span className="text-gray-300">—</span>}</td>
+                        <td className="px-4 py-2 text-right">
+                          <button onClick={() => eliminarFeriado(f.id)} className="rounded-md p-1 text-gray-400 hover:bg-rojo/10 hover:text-rojo" title="Eliminar">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
