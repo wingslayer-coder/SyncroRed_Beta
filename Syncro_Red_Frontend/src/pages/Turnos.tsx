@@ -1,24 +1,40 @@
 import { useState, useEffect } from 'react';
 import client from '../api/client';
-import { Calendar, RefreshCw } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { Calendar, RefreshCw, Upload, Users } from 'lucide-react';
 
 interface GraficoMensual {
   id?: number;
   fecha: string;
   rut: string | any;
   num_turno: string;
+  nombre?: string;
+  apellido?: string;
+}
+
+interface ParejaTurnos {
+  nombres: string;
+  turnos: Record<number, string>;
+  ruts: string[];
 }
 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
 export default function Turnos() {
+  const { user } = useAuth();
+  const cargo = (user?.cargo || '').toUpperCase();
+  const esJefatura = ['IL', 'INSPECTOR DE LINEA', 'SL', 'SUPERVISOR DE LINEA', 'JO', 'JEFE DE OPERACIONES', 'ADMIN', 'GERENCIA', 'GERENTE'].includes(cargo);
+  
   const [graficos, setGraficos] = useState<GraficoMensual[]>([]);
   const [loading, setLoading] = useState(true);
   const [mes, setMes] = useState(new Date().getMonth() + 1);
   const [anio, setAnio] = useState(new Date().getFullYear());
+  const [uploading, setUploading] = useState(false);
+  const [nombresMap, setNombresMap] = useState<Record<string, string>>({});
 
   useEffect(() => {
     cargarGraficos();
+    cargarNombresUsuarios();
   }, [mes, anio]);
 
   const cargarGraficos = async () => {
@@ -38,22 +54,93 @@ export default function Turnos() {
     }
   };
 
+  const cargarNombresUsuarios = async () => {
+    try {
+      const res = await client.get('/usuarios/usuarios/');
+      const usuarios = res.data.results || res.data;
+      const map: Record<string, string> = {};
+      usuarios.forEach((u: any) => {
+        const nombreCompleto = `${u.nombre || ''} ${u.apellido || ''}`.trim();
+        if (u.rut && nombreCompleto) {
+          map[u.rut] = nombreCompleto;
+        }
+      });
+      setNombresMap(map);
+    } catch (err) {
+      console.error('Error cargando nombres:', err);
+    }
+  };
+
   const getDaysInMonth = (m: number, y: number) => new Date(y, m, 0).getDate();
   const diasMes = getDaysInMonth(mes, anio);
   const dias = Array.from({ length: diasMes }, (_, i) => i + 1);
 
-  // Agrupar por rut
-  const porUsuario: Record<string, { nombre: string; turnos: Record<number, string> }> = {};
+  // Agrupar por rut y detectar parejas con mismo turno
+  const porUsuario: Record<string, { nombre: string; turnos: Record<number, string>; ruts: string[] }> = {};
+  
   graficos.forEach((g) => {
     const r = typeof g.rut === 'object' ? g.rut.rut : g.rut;
-    const nombre = typeof g.rut === 'object' ? `${g.rut.nombre} ${g.rut.apellido}` : r;
+    // Primero intentar obtener nombre del mapa de usuarios, luego del objeto rut, luego del grafico
+    const nombreRaw = nombresMap[r] 
+      || (typeof g.rut === 'object' ? `${g.rut.nombre || ''} ${g.rut.apellido || ''}`.trim() : '')
+      || (g.nombre && g.apellido ? `${g.nombre} ${g.apellido}`.trim() : '');
+    const nombre = nombreRaw || r;
 
     if (!porUsuario[r]) {
-      porUsuario[r] = { nombre, turnos: {} };
+      porUsuario[r] = { nombre, turnos: {}, ruts: [r] };
     }
     const day = parseInt(g.fecha.split('-')[2], 10);
     porUsuario[r].turnos[day] = g.num_turno;
   });
+
+  // Detectar parejas con turnos idénticos
+  const parejas: ParejaTurnos[] = [];
+  const usuariosProcesados = new Set<string>();
+  
+  const usuarios = Object.keys(porUsuario);
+  for (let i = 0; i < usuarios.length; i++) {
+    const rut1 = usuarios[i];
+    if (usuariosProcesados.has(rut1)) continue;
+    
+    const user1 = porUsuario[rut1];
+    const turnos1Str = JSON.stringify(user1.turnos);
+    const parejaRuts = [rut1];
+    const nombresPareja = [user1.nombre];
+    
+    for (let j = i + 1; j < usuarios.length; j++) {
+      const rut2 = usuarios[j];
+      if (usuariosProcesados.has(rut2)) continue;
+      
+      const user2 = porUsuario[rut2];
+      const turnos2Str = JSON.stringify(user2.turnos);
+      
+      if (turnos1Str === turnos2Str) {
+        parejaRuts.push(rut2);
+        nombresPareja.push(user2.nombre);
+        usuariosProcesados.add(rut2);
+      }
+    }
+    
+    if (parejaRuts.length > 1) {
+      parejas.push({
+        nombres: nombresPareja.join(' / '),
+        turnos: user1.turnos,
+        ruts: parejaRuts
+      });
+      usuariosProcesados.add(rut1);
+    }
+  }
+  
+  // Usuarios individuales (sin pareja)
+  const individuales = usuarios
+    .filter(rut => !usuariosProcesados.has(rut))
+    .map(rut => ({
+      nombres: porUsuario[rut].nombre,
+      turnos: porUsuario[rut].turnos,
+      ruts: [rut]
+    }));
+  
+  const todosLosTurnos = [...parejas, ...individuales];
 
   const esFinDeSemana = (dia: number) => {
     const d = new Date(anio, mes - 1, dia).getDay();
@@ -100,6 +187,46 @@ export default function Turnos() {
           >
             <RefreshCw className={`h-5 w-5 text-gray-600 ${loading ? 'animate-spin' : ''}`} />
           </button>
+          {esJefatura && (
+            <button
+              onClick={() => document.getElementById('upload-grafico')?.click()}
+              disabled={uploading}
+              className="rounded-lg border border-gray-200 bg-white p-2.5 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-50"
+              title="Subir gráfico (Excel)"
+            >
+              <Upload className={`h-5 w-5 text-azul ${uploading ? 'animate-pulse' : ''}`} />
+            </button>
+          )}
+          <input
+            id="upload-grafico"
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              
+              setUploading(true);
+              const formData = new FormData();
+              formData.append('archivo', file);
+              formData.append('mes', mes.toString());
+              formData.append('anio', anio.toString());
+              
+              try {
+                await client.post('/operaciones/grafico-mensual/upload/', formData, {
+                  headers: { 'Content-Type': 'multipart/form-data' }
+                });
+                alert('Gráfico subido exitosamente');
+                cargarGraficos();
+              } catch (err: any) {
+                console.error(err);
+                alert('Error al subir el archivo: ' + (err.response?.data?.error || err.message));
+              } finally {
+                setUploading(false);
+                (e.target as HTMLInputElement).value = '';
+              }
+            }}
+          />
         </div>
       </div>
 
@@ -126,23 +253,28 @@ export default function Turnos() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {Object.keys(porUsuario).length === 0 ? (
+              {todosLosTurnos.length === 0 ? (
                 <tr>
                   <td colSpan={dias.length + 1} className="py-8 text-center text-gray-500">
                     No hay turnos asignados para {MESES[mes - 1]} {anio}.
                   </td>
                 </tr>
               ) : (
-                Object.keys(porUsuario).map((rut) => (
-                  <tr key={rut} className="hover:bg-gray-50/70">
+                todosLosTurnos.map((item, idx) => (
+                  <tr key={idx} className="hover:bg-gray-50/70">
                     <td
-                      className="sticky left-0 z-[1] w-48 truncate border-b border-r border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-800"
-                      title={porUsuario[rut].nombre}
+                      className={`sticky left-0 z-[1] w-48 truncate border-b border-r border-gray-200 px-4 py-2 text-xs font-semibold text-gray-800 ${
+                        item.ruts.length > 1 ? 'bg-blue-50' : 'bg-white'
+                      }`}
+                      title={item.nombres}
                     >
-                      {porUsuario[rut].nombre}
+                      <div className="flex items-center gap-2">
+                        {item.ruts.length > 1 && <Users size={14} className="text-blue-500" />}
+                        <span>{item.nombres}</span>
+                      </div>
                     </td>
                     {dias.map((d) => {
-                      const t = porUsuario[rut].turnos[d] || '';
+                      const t = item.turnos[d] || '';
                       return (
                         <td
                           key={d}
@@ -151,7 +283,9 @@ export default function Turnos() {
                           }`}
                         >
                           {t ? (
-                            <span className="inline-flex min-w-[26px] items-center justify-center rounded-md bg-azul/10 px-1.5 py-0.5 text-xs font-bold text-azul">
+                            <span className={`inline-flex min-w-[26px] items-center justify-center rounded-md px-1.5 py-0.5 text-xs font-bold ${
+                              item.ruts.length > 1 ? 'bg-blue-100 text-blue-700' : 'bg-azul/10 text-azul'
+                            }`}>
                               {t}
                             </span>
                           ) : (

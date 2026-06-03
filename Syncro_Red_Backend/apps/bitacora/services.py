@@ -6,22 +6,25 @@ logger = logging.getLogger(__name__)
 
 def generar_reporte_turno(fecha, usuario_nombre, rol):
     """Genera el texto plano consolidado con las novedades de la jornada en formato Markdown/Texto"""
-    reporte = f"Reporte de Servicios\n"
-    reporte += f"Fecha de Emisión : {fecha}\n"
-    reporte += f"Personal :\n"
-
-    # Buscamos quién operó hoy para armar la tripulación dinámicamente
-    tripulacion = ServicioActivo.objects.filter(fecha=fecha).first()
-
-    if tripulacion:
-        reporte += f"{tripulacion.maquinista} Maquinista\n"
-        reporte += f"{tripulacion.ayudante} Ayudante\n\n"
-    else:
-        reporte += f"{usuario_nombre} ({rol.title()})\n\n"
-
-    reporte += "📢 NOVEDADES Y ESTADO DE LOS SERVICIOS:"
-
+    logger.info(f"Generando reporte para fecha {fecha}, usuario {usuario_nombre}, rol {rol}")
+    
     try:
+        reporte = f"Reporte de Servicios\n"
+        reporte += f"Fecha de Emisión : {fecha}\n"
+        reporte += f"Personal :\n"
+
+        # Buscamos quién operó hoy para armar la tripulación dinámicamente
+        tripulacion = ServicioActivo.objects.filter(fecha=fecha).first()
+
+        if tripulacion:
+            reporte += f"{tripulacion.maquinista} Maquinista\n"
+            reporte += f"{tripulacion.ayudante} Ayudante\n\n"
+        else:
+            rol_str = rol.title() if rol else 'Sin rol'
+            reporte += f"{usuario_nombre} ({rol_str})\n\n"
+
+        reporte += "📢 NOVEDADES Y ESTADO DE LOS SERVICIOS:"
+
         servicios = ServicioActivo.objects.filter(fecha=fecha)
         if not servicios.exists():
             reporte += "\n• No se registran servicios operados en el tablero para esta fecha."
@@ -92,9 +95,9 @@ def generar_reporte_turno(fecha, usuario_nombre, rol):
                 estado_dest_txt = "a Horario" if reg_destino["estado"] == "A LA HORA" else "con Atraso"
                 reporte += f"• Llegada a {est_destino_nombre} {estado_dest_txt}"
 
+        reporte += f"\n\nFin del reporte técnico.."
+        return reporte
+
     except Exception as e:
         logger.error(f"Error generando reporte: {e}")
-        reporte += f"\n⚠️ Error al compilar minuta técnica: {str(e)}"
-
-    reporte += f"\n\nFin del reporte técnico.."
-    return reporte
+        return f"Reporte de Servicios\nFecha de Emisión : {fecha}\nPersonal :\n{usuario_nombre}\n\n⚠️ Error al compilar minuta técnica: {str(e)}"

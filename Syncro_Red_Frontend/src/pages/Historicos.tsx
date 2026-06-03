@@ -38,20 +38,44 @@ export default function Historicos() {
 
   const descargarExcel = async () => {
     try {
+      console.log('📊 Descargando Bitácora Operativa...');
       const params = fechaBuscada ? { fecha: fechaBuscada } : {};
-      const res = await client.get('/bitacora/reportes-finales/exportar_excel/', {
+      console.log('📊 Parámetros:', params);
+      
+      const res = await client.get('/bitacora/reportes-finales/exportar_bitacora_operativa/', {
         params,
         responseType: 'blob',
       });
+      
+      console.log('📊 Respuesta recibida:', res.status, res.headers['content-type']);
+      
+      if (!res.data || res.data.size === 0) {
+        throw new Error('El archivo está vacío');
+      }
+      
       const blob = new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `reportes${fechaBuscada ? '_' + fechaBuscada : ''}.xlsx`;
+      a.download = `Bitacora_Operativa${fechaBuscada ? '_' + fechaBuscada : ''}.xlsx`;
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch {
-      alert('Error al descargar el Excel.');
+      console.log('✅ Bitácora descargada exitosamente');
+    } catch (err: any) {
+      console.error('❌ Error descargando Bitácora:', err);
+      console.error('Error details:', err.response?.status, err.response?.data);
+      
+      if (err.response?.status === 404) {
+        alert('Error: El endpoint no existe. Reinicia el servidor Django.');
+      } else if (err.response?.status === 500) {
+        alert('Error del servidor al generar el Excel. Contacta al administrador.');
+      } else if (err.message === 'El archivo está vacío') {
+        alert('No hay datos para exportar. Realiza servicios en Bitácora primero.');
+      } else {
+        alert('Error al descargar el Excel: ' + (err.message || 'Error desconocido'));
+      }
     }
   };
 

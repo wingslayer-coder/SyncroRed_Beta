@@ -3,7 +3,7 @@ import CambiarPasswordModal from './CambiarPasswordModal';
 import {
   LogOut, Train, LayoutDashboard, ClipboardList,
   Radio, BookOpen, Map, UserCheck, CalendarDays, Database,
-  Users, UserMinus, MapPin, Upload, ChevronLeft, Bell, KeyRound
+  Users, UserMinus, MapPin, Upload, ChevronLeft, Bell, KeyRound, FileText
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
@@ -125,7 +125,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <>
                 {navItem('/bitacora', 'Servicios en curso', <BookOpen className="h-4 w-4" />)}
                 {navItem('/mapa-ferroviario', 'Mapa Ferroviario', <Map className="h-4 w-4" />)}
-                {navItem('/asistencia', 'Asistencia y alistación', <UserCheck className="h-4 w-4" />)}
+                {navItem('/asistencia', 'Asistencia', <UserCheck className="h-4 w-4" />)}
+                {navItem('/alistacion', 'Mi Alistación', <FileText className="h-4 w-4" />)}
                 {navItem('/turnos', 'Gráfico Tripulación', <CalendarDays className="h-4 w-4" />)}
               </>
             )}

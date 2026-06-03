@@ -60,6 +60,7 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
 class RegistroOperativo(models.Model):
     ESTADO_CHOICES = [
         ('PENDIENTE', 'Pendiente'),
+        ('PENDIENTE_AUTORIZACION', 'Pendiente Autorización IL'),
         ('CONFIRMADO', 'Confirmado'),
         ('RECHAZADO', 'Rechazado'),
     ]
@@ -67,14 +68,28 @@ class RegistroOperativo(models.Model):
     fecha = models.DateField()
     rut_trabajador = models.ForeignKey(Usuario, on_delete=models.CASCADE, related_name='registros_operativos', to_field='rut', db_column='rut_trabajador')
     lugar_apertura = models.CharField(max_length=100, blank=True)
-    hora_apertura = models.CharField(max_length=10, blank=True)
-    inicio_servicio = models.CharField(max_length=10, blank=True)
-    hora_cierre = models.CharField(max_length=10, blank=True)
-    horas_extras = models.FloatField(default=0)
+    hora_apertura = models.CharField(max_length=10, blank=True)   # Hora EZ calculada (real)
+    inicio_servicio = models.CharField(max_length=10, blank=True)  # Hora presentación real
+    hora_cierre = models.CharField(max_length=10, blank=True)      # Hora cierre real
+    fecha_cierre = models.DateField(null=True, blank=True)          # Fecha cierre (para turnos que cruzan medianoche)
+
+    # Datos del gráfico mensual original (para cálculo de diferencias)
+    grafico_apertura_hora = models.CharField(max_length=10, blank=True)
+    grafico_cierre_hora = models.CharField(max_length=10, blank=True)
+    grafico_tiene_descanso_posterior = models.BooleanField(default=False)  # Si el día siguiente es descanso
+
+    # Detalle de horas extras (desglose por concepto)
+    horas_extras = models.FloatField(default=0)           # Total extras
+    horas_extras_apertura = models.FloatField(default=0)  # Por apertura anticipada vs gráfico
+    horas_extras_cierre = models.FloatField(default=0)    # Por cierre tardío vs gráfico
+    horas_extras_7_5 = models.FloatField(default=0)       # Por exceder 7.5h totales
+    horas_extras_descanso = models.FloatField(default=0)  # Por afectar descanso semanal (post-00:00)
+    horas_extras_doble_turno = models.FloatField(default=0)  # Por modificación de turno completo
+
     horas_menos_reposo = models.FloatField(default=0)
     horas_nocturnas = models.FloatField(default=0)
     horas_manejo = models.FloatField(default=0)
-    estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='PENDIENTE')
+    estado = models.CharField(max_length=30, choices=ESTADO_CHOICES, default='PENDIENTE')
     observacion_il = models.TextField(blank=True)
 
     class Meta:

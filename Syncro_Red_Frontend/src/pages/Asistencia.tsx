@@ -29,8 +29,18 @@ interface Pendiente {
 interface Consolidado {
   id: number; fecha: string; rut: string; nombre: string; cargo: string;
   lugar_apertura: string; hora_apertura: string; inicio_servicio: string;
-  hora_cierre: string; horas_extras: number; horas_manejo: number;
-  horas_nocturnas: number; horas_menos_reposo: number; estado: string; observacion: string;
+  hora_cierre: string; fecha_cierre: string | null;
+  // Horas extras desglose
+  horas_extras: number;
+  horas_extras_apertura: number;
+  horas_extras_cierre: number;
+  horas_extras_7_5: number;
+  horas_extras_descanso: number;
+  horas_extras_doble_turno: number;
+  horas_manejo: number;
+  horas_nocturnas: number;
+  horas_menos_reposo: number;
+  estado: string; observacion: string;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -177,6 +187,10 @@ function PanelTripulacion({ hoy, esMaquinista }: { hoy: string; esMaquinista: bo
         hora_presentacion: horaPres,
         coincide: coincideAp && !!miTurno,
         motivo: motivoAp,
+        // Datos del gráfico para cálculo de horas extras
+        grafico_apertura_hora: miTurno?.apertura_hora || '',
+        grafico_cierre_hora: miTurno?.cierre_hora || '',
+        grafico_tiene_descanso_posterior: miTurno?.tipo_dia === 'Descanso' || false,
       });
 
       setTurnoAbierto({ id: res.data.id, fecha: hoy, rut_trabajador: '', lugar_apertura: lugar,
@@ -206,6 +220,8 @@ function PanelTripulacion({ hoy, esMaquinista }: { hoy: string; esMaquinista: bo
         motivo_cierre: motivoCi,
         inicio_manejo: iniManejo,
         fin_manejo: finManejo,
+        // Flag para doble turno / modificación completa (calcula totalidad del turno)
+        es_doble_turno: false,  // TODO: agregar checkbox en UI para casos de modificación completa
       });
       setResumenCierre(res.data);
       setFase('fin');
@@ -452,11 +468,27 @@ function PanelJefatura() {
   const [pendientes, setPendientes] = useState<Pendiente[]>([]);
   const [consolidado, setConsolidado] = useState<Consolidado[]>([]);
   const [loading, setLoading] = useState(false);
-  const [editId, setEditId] = useState<number|null>(null);
-  const [editData, setEditData] = useState<Partial<Consolidado>>({});
-  const [filtroRut, setFiltroRut] = useState('');
-  const [filtroDesde, setFiltroDesde] = useState('');
-  const [filtroHasta, setFiltroHasta] = useState('');
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editRegistro, setEditRegistro] = useState<Consolidado|null>(null);
+  const [editForm, setEditForm] = useState({
+    hora_apertura: '',
+    inicio_servicio: '',
+    hora_cierre: '',
+    horas_extras: 0,
+    horas_manejo: 0,
+    horas_nocturnas: 0,
+    horas_menos_reposo: 0,
+    estado: '',
+    observacion_il: '',
+  });
+  const [notificacionModal, setNotificacionModal] = useState<{show: boolean, mensaje: string, trabajador: string}>({show: false, mensaje: '', trabajador: ''});
+  const [filtroNombre, setFiltroNombre] = useState('');
+  const [filtroMes, setFiltroMes] = useState((new Date().getMonth() + 1).toString()); // Mes actual por defecto
+  const [filtroAnio, setFiltroAnio] = useState(new Date().getFullYear().toString());
+
+  // Calcular fechas de inicio y fin de mes para el backend
+  const fechaDesde = `${filtroAnio}-${filtroMes.padStart(2, '0')}-01`;
+  const fechaHasta = `${filtroAnio}-${filtroMes.padStart(2, '0')}-${new Date(parseInt(filtroAnio), parseInt(filtroMes), 0).getDate()}`;
 
   const cargarPendientes = async () => {
     try { const r = await client.get('/usuarios/asistencia/pendientes/'); setPendientes(r.data); }
@@ -467,9 +499,8 @@ function PanelJefatura() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (filtroDesde) params.set('desde', filtroDesde);
-      if (filtroHasta) params.set('hasta', filtroHasta);
-      if (filtroRut)   params.set('rut', filtroRut);
+      params.set('desde', fechaDesde);
+      params.set('hasta', fechaHasta);
       const r = await client.get(`/usuarios/asistencia/consolidado/?${params}`);
       setConsolidado(r.data);
     } catch { setConsolidado([]); }
@@ -483,11 +514,133 @@ function PanelJefatura() {
     cargarPendientes(); cargarConsolidado();
   };
 
+  const abrirModalEdicion = (registro: Consolidado) => {
+    setEditRegistro(registro);
+    setEditForm({
+      hora_apertura: registro.hora_apertura || '',
+      inicio_servicio: registro.inicio_servicio || '',
+      hora_cierre: registro.hora_cierre || '',
+      horas_extras: registro.horas_extras || 0,
+      horas_manejo: registro.horas_manejo || 0,
+      horas_nocturnas: registro.horas_nocturnas || 0,
+      horas_menos_reposo: registro.horas_menos_reposo || 0,
+      estado: registro.estado || '',
+      observacion_il: registro.observacion || '',
+    });
+    setEditModalOpen(true);
+  };
+
   const guardarEdicion = async () => {
-    if (!editId) return;
-    await client.patch(`/usuarios/asistencia/editar/${editId}/`, editData);
-    setEditId(null); setEditData({});
-    cargarConsolidado();
+    if (!editRegistro) return;
+    try {
+      await client.patch(`/usuarios/asistencia/editar/${editRegistro.id}/`, editForm);
+      
+      // Mostrar notificación de éxito
+      setNotificacionModal({
+        show: true,
+        mensaje: `Se han modificado las horas del turno del ${editRegistro.fecha}. Nuevas horas extras: ${editForm.horas_extras}h, manejo: ${editForm.horas_manejo}h, nocturnas: ${editForm.horas_nocturnas}h`,
+        trabajador: editRegistro.nombre
+      });
+      
+      setEditModalOpen(false);
+      setEditRegistro(null);
+      cargarConsolidado();
+      
+      // Cerrar notificación automáticamente después de 3 segundos
+      setTimeout(() => {
+        setNotificacionModal(prev => ({...prev, show: false}));
+      }, 3000);
+    } catch (e) {
+      alert('Error al guardar los cambios');
+    }
+  };
+
+  // Función para filtrar y ordenar datos
+  const filteredConsolidado = consolidado.filter(r => {
+    if (filtroNombre && !r.nombre?.toLowerCase().includes(filtroNombre.toLowerCase())) return false;
+    return true;
+  });
+
+  // Ordenar automáticamente por fecha (1-31)
+  const sortedConsolidado = [...filteredConsolidado].sort((a, b) => {
+    return new Date(a.fecha).getTime() - new Date(b.fecha).getTime();
+  });
+
+  // Exportar detalle por trabajador específico
+  const exportarDetallePorTrabajador = async (rut: string, nombre: string) => {
+    const params = new URLSearchParams();
+    params.set('desde', fechaDesde);
+    params.set('hasta', fechaHasta);
+    params.set('rut', rut);
+    params.set('modo', 'detalle');
+    
+    try {
+      const response = await client.get(`/usuarios/asistencia/exportar-excel/?${params}`, {
+        responseType: 'blob',
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      
+      const nombreLimpio = nombre.replace(/\s+/g, '_').substring(0, 20);
+      const periodo = filtroMes ? `${filtroMes.padStart(2,'0')}_${filtroAnio}` : 'periodo';
+      link.setAttribute('download', `detalle_${nombreLimpio}_${periodo}.xlsx`);
+      
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('Error al descargar el Excel.');
+    }
+  };
+
+  // Calcular totales sobre datos filtrados
+  const totales = filteredConsolidado.reduce((acc, r) => ({
+    horas_extras: acc.horas_extras + (r.horas_extras || 0),
+    horas_extras_apertura: acc.horas_extras_apertura + (r.horas_extras_apertura || 0),
+    horas_extras_cierre: acc.horas_extras_cierre + (r.horas_extras_cierre || 0),
+    horas_extras_7_5: acc.horas_extras_7_5 + (r.horas_extras_7_5 || 0),
+    horas_extras_descanso: acc.horas_extras_descanso + (r.horas_extras_descanso || 0),
+    horas_extras_doble_turno: acc.horas_extras_doble_turno + (r.horas_extras_doble_turno || 0),
+    horas_manejo: acc.horas_manejo + (r.horas_manejo || 0),
+    horas_nocturnas: acc.horas_nocturnas + (r.horas_nocturnas || 0),
+    horas_menos_reposo: acc.horas_menos_reposo + (r.horas_menos_reposo || 0),
+  }), {
+    horas_extras: 0, horas_extras_apertura: 0, horas_extras_cierre: 0,
+    horas_extras_7_5: 0, horas_extras_descanso: 0, horas_extras_doble_turno: 0,
+    horas_manejo: 0, horas_nocturnas: 0, horas_menos_reposo: 0,
+  });
+
+  // Exportar a Excel (usando axios para incluir JWT token)
+  const exportarExcel = async (modo: 'detalle'|'resumen') => {
+    const params = new URLSearchParams();
+    params.set('desde', fechaDesde);
+    params.set('hasta', fechaHasta);
+    params.set('modo', modo);
+    
+    try {
+      const response = await client.get(`/usuarios/asistencia/exportar-excel/?${params}`, {
+        responseType: 'blob', // Importante para descargar archivos
+      });
+      
+      // Crear URL del blob y forzar descarga
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      
+      // Generar nombre del archivo
+      const fechaStr = new Date().toISOString().split('T')[0];
+      link.setAttribute('download', `asistencia_${modo}_${fechaStr}.xlsx`);
+      
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('Error al descargar el Excel. Verifica que tengas permisos.');
+    }
   };
 
   return (
@@ -540,6 +693,15 @@ function PanelJefatura() {
                     <XCircle className="h-4 w-4" /> Rechazar
                   </button>
                 </div>
+                <button onClick={async () => {
+                  if (confirm('¿Eliminar esta solicitud? Esta acción no se puede deshacer.')) {
+                    await client.delete(`/usuarios/asistencia/eliminar/${p.id}/`);
+                    cargarPendientes();
+                  }
+                }}
+                  className="w-full rounded-lg bg-gray-600 py-1.5 text-xs font-bold text-white hover:brightness-110 transition-all flex items-center justify-center gap-1 mt-1">
+                  <XCircle className="h-3 w-3" /> Eliminar solicitud
+                </button>
             </div>
           ))}
         </div>
@@ -548,93 +710,262 @@ function PanelJefatura() {
       {/* Consolidado */}
       {tab === 'consolidado' && (
         <div className="space-y-4">
-          {/* Filtros */}
-          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm flex flex-wrap gap-3 items-end">
-            <div className="space-y-1">
-              <label className="text-xs font-bold uppercase tracking-wide text-gray-400">Desde</label>
-              <input type="date" value={filtroDesde} onChange={e => setFiltroDesde(e.target.value)}
-                className="rounded-lg border border-gray-300 p-2 text-sm focus:border-azul focus:ring-2 focus:ring-azul/30" />
+          {/* Filtros y Exportación */}
+          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap gap-4 items-end justify-center">
+              {/* Período Mensual */}
+              <div className="flex gap-3 items-end bg-azul/5 rounded-lg p-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold uppercase tracking-wide text-azul">📅 Mes</label>
+                  <select value={filtroMes} onChange={e => setFiltroMes(e.target.value)}
+                    className="rounded-lg border border-gray-300 p-2 text-sm focus:border-azul focus:ring-2 focus:ring-azul/30 w-36 bg-white">
+                    {['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'].map((m, i) => (
+                      <option key={i} value={(i + 1).toString()}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold uppercase tracking-wide text-azul">Año</label>
+                  <select value={filtroAnio} onChange={e => setFiltroAnio(e.target.value)}
+                    className="rounded-lg border border-gray-300 p-2 text-sm focus:border-azul focus:ring-2 focus:ring-azul/30 w-24 bg-white">
+                    {[2024, 2025, 2026, 2027, 2028].map(a => (
+                      <option key={a} value={a.toString()}>{a}</option>
+                    ))}
+                  </select>
+                </div>
+                <button onClick={cargarConsolidado}
+                  className="rounded-lg bg-azul px-4 py-2 text-sm font-bold text-white hover:brightness-110 transition-all">
+                  🔍 Buscar
+                </button>
+              </div>
+
+              {/* Búsqueda por Nombre */}
+              <div className="w-full max-w-md">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold uppercase tracking-wide text-gray-400">🔎 Buscar por Nombre</label>
+                  <input value={filtroNombre} onChange={e => setFiltroNombre(e.target.value)}
+                    className="rounded-lg border border-gray-300 p-2 text-sm focus:border-azul focus:ring-2 focus:ring-azul/30 w-full"
+                    placeholder="Ej: Bustamante, Barriga, etc." />
+                </div>
+              </div>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold uppercase tracking-wide text-gray-400">Hasta</label>
-              <input type="date" value={filtroHasta} onChange={e => setFiltroHasta(e.target.value)}
-                className="rounded-lg border border-gray-300 p-2 text-sm focus:border-azul focus:ring-2 focus:ring-azul/30" />
+            
+            {/* Botones de Excel centrados */}
+            <div className="flex gap-2 justify-center mt-4 pt-4 border-t border-gray-100">
+              <button onClick={() => exportarExcel('detalle')}
+                className="rounded-xl bg-green-600 px-4 py-2 text-sm font-bold text-white hover:brightness-110 transition-all flex items-center gap-2">
+                <FileText className="h-4 w-4" /> Excel Detalle
+              </button>
+              <button onClick={() => exportarExcel('resumen')}
+                className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:brightness-110 transition-all flex items-center gap-2">
+                <FileText className="h-4 w-4" /> Excel Resumen
+              </button>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold uppercase tracking-wide text-gray-400">RUT Trabajador</label>
-              <input value={filtroRut} onChange={e => setFiltroRut(e.target.value)}
-                className="rounded-lg border border-gray-300 p-2 text-sm focus:border-azul focus:ring-2 focus:ring-azul/30"
-                placeholder="Ej: 20516668-8" />
-            </div>
-            <button onClick={cargarConsolidado}
-              className="rounded-xl bg-azul px-5 py-2 text-sm font-bold text-white hover:brightness-110 transition-all">
-              Filtrar
-            </button>
           </div>
+
+          {/* Totales */}
+          {filteredConsolidado.length > 0 && (
+            <div className="rounded-xl border border-azul/20 bg-azul/5 p-4">
+              <h4 className="text-sm font-bold text-azul mb-3">
+                📊 Totales del período ({filteredConsolidado.length} registros
+                {filteredConsolidado.length !== consolidado.length && ` de ${consolidado.length} total`})
+              </h4>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div className="bg-white rounded-lg p-2 text-center shadow-sm">
+                  <div className="text-gray-500">H.Extras Total</div>
+                  <div className="font-bold text-rojo text-lg">{totales.horas_extras.toFixed(1)}</div>
+                </div>
+                <div className="bg-white rounded-lg p-2 text-center shadow-sm">
+                  <div className="text-gray-500">H.Manejo</div>
+                  <div className="font-bold text-azul text-lg">{totales.horas_manejo.toFixed(1)}</div>
+                </div>
+                <div className="bg-white rounded-lg p-2 text-center shadow-sm">
+                  <div className="text-gray-500">H.Nocturnas</div>
+                  <div className="font-bold text-indigo-600 text-lg">{totales.horas_nocturnas.toFixed(1)}</div>
+                </div>
+                <div className="bg-white rounded-lg p-2 text-center shadow-sm">
+                  <div className="text-gray-500">H.Menos Reposo</div>
+                  <div className="font-bold text-rojo text-lg">{totales.horas_menos_reposo.toFixed(1)}</div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Table */}
           <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
             {loading ? (
               <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-azul" /></div>
             ) : (
-              <table className="w-full border-collapse table-fixed text-sm">
+              <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr className="bg-azul text-white text-xs">
-                    {['Fecha','Nombre','Lugar','Apertura','Presentación','Cierre','H.Extras','H.Manejo','H.Noct.','H.Reposo','Estado',''].map(h => (
-                      <th key={h} className="px-3 py-3 text-left font-bold">{h}</th>
-                    ))}
+                    <th className="px-2 py-2 text-left font-bold">Fecha</th>
+                    <th className="px-2 py-2 text-left font-bold">Nombre</th>
+                    <th className="px-2 py-2 text-left font-bold">Lugar</th>
+                    <th className="px-2 py-2 text-left font-bold">Apertura</th>
+                    <th className="px-2 py-2 text-left font-bold">Presentación</th>
+                    <th className="px-2 py-2 text-left font-bold">Cierre</th>
+                    <th className="px-2 py-2 text-center font-bold bg-rojo/20">Extras</th>
+                    <th className="px-2 py-2 text-center font-bold bg-blue-500/20">Manejo</th>
+                    <th className="px-2 py-2 text-center font-bold bg-indigo-500/20">Noct.</th>
+                    <th className="px-2 py-2 text-center font-bold bg-red-500/20">Reposo</th>
+                    <th className="px-2 py-2 text-left font-bold">Estado</th>
+                    <th className="px-2 py-2 text-left font-bold"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {consolidado.length === 0 && (
+                  {sortedConsolidado.length === 0 && (
                     <tr><td colSpan={12} className="px-6 py-12 text-center text-gray-400">Sin registros para los filtros seleccionados.</td></tr>
                   )}
-                  {consolidado.map(r => (
-                    <tr key={r.id} className={`hover:bg-gray-50 transition-colors ${editId === r.id ? 'bg-blue-50' : ''}`}>
-                      <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{r.fecha}</td>
-                      <td className="px-3 py-2 font-semibold text-gray-800 truncate">{r.nombre}</td>
-                      <td className="px-3 py-2 text-xs text-gray-500">{r.lugar_apertura}</td>
-                      <td className="px-3 py-2 text-xs">{r.hora_apertura}</td>
-                      <td className="px-3 py-2 text-xs">{r.inicio_servicio}</td>
-                      <td className="px-3 py-2 text-xs">{r.hora_cierre || '—'}</td>
-                      {editId === r.id ? (
-                        <>
-                          {(['horas_extras','horas_manejo','horas_nocturnas','horas_menos_reposo'] as const).map(f => (
-                            <td key={f} className="px-1 py-1">
-                              <input type="number" step="0.5" min="0"
-                                value={(editData as any)[f] ?? r[f]}
-                                onChange={e => setEditData(d => ({...d, [f]: parseFloat(e.target.value)}))}
-                                className="w-16 rounded border border-azul p-1 text-xs text-center font-bold" />
-                            </td>
-                          ))}
-                        </>
-                      ) : (
-                        <>
-                          <td className="px-3 py-2 text-xs font-bold text-rojo">{r.horas_extras.toFixed(1)}</td>
-                          <td className="px-3 py-2 text-xs font-bold text-azul">{r.horas_manejo.toFixed(1)}</td>
-                          <td className="px-3 py-2 text-xs font-bold text-azul">{r.horas_nocturnas.toFixed(1)}</td>
-                          <td className="px-3 py-2 text-xs font-bold text-rojo">{r.horas_menos_reposo.toFixed(1)}</td>
-                        </>
-                      )}
-                      <td className="px-3 py-2"><Badge estado={r.estado} /></td>
+                  {sortedConsolidado.map(r => (
+                    <tr key={r.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-2 py-2 whitespace-nowrap text-xs text-gray-500">{r.fecha}</td>
+                      <td className="px-2 py-2 font-semibold text-gray-800 text-xs truncate max-w-[120px]">{r.nombre}</td>
+                      <td className="px-2 py-2 text-xs text-gray-500">{r.lugar_apertura}</td>
+                      <td className="px-2 py-2 text-xs">{r.hora_apertura}</td>
+                      <td className="px-2 py-2 text-xs">{r.inicio_servicio}</td>
+                      <td className="px-2 py-2 text-xs">{r.fecha_cierre ? `${r.fecha_cierre} ` : ''}{r.hora_cierre || '—'}</td>
+                      <td className="px-2 py-2 text-xs font-bold text-rojo text-center">{r.horas_extras?.toFixed(1) || '0.0'}</td>
+                      <td className="px-2 py-2 text-xs text-blue-700 text-center">{r.horas_manejo?.toFixed(1) || '0.0'}</td>
+                      <td className="px-2 py-2 text-xs text-indigo-700 text-center">{r.horas_nocturnas?.toFixed(1) || '0.0'}</td>
+                      <td className="px-2 py-2 text-xs text-red-700 text-center">{r.horas_menos_reposo?.toFixed(1) || '0.0'}</td>
+                      <td className="px-2 py-2"><Badge estado={r.estado} /></td>
                       <td className="px-2 py-2">
-                          {editId === r.id ? (
-                            <button onClick={guardarEdicion}
-                              className="rounded bg-green-600 px-2 py-1 text-[10px] font-bold text-white hover:brightness-110">
-                              <Save className="h-3 w-3 inline" /> Guardar
-                            </button>
-                          ) : (
-                            <button onClick={() => { setEditId(r.id); setEditData({}); }}
-                              className="rounded bg-azul/10 px-2 py-1 text-[10px] font-bold text-azul hover:bg-azul hover:text-white transition-all">
-                              <Edit3 className="h-3 w-3 inline" /> Editar
-                            </button>
-                          )}
+                        <div className="flex gap-1">
+                          <button onClick={() => exportarDetallePorTrabajador(r.rut, r.nombre)}
+                            className="rounded bg-green-600/20 px-2 py-1 text-[10px] font-bold text-green-700 hover:bg-green-600 hover:text-white transition-all"
+                            title="Descargar detalle mensual">
+                            <FileText className="h-3 w-3 inline" />
+                          </button>
+                          <button onClick={() => abrirModalEdicion(r)}
+                            className="rounded bg-azul/10 px-2 py-1 text-[10px] font-bold text-azul hover:bg-azul hover:text-white transition-all"
+                            title="Editar horas">
+                            <Edit3 className="h-3 w-3 inline" />
+                          </button>
+                        </div>
                         </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Edición */}
+      {editModalOpen && editRegistro && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-azul">✏️ Editar Registro</h3>
+                <button onClick={() => setEditModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                  <XCircle className="h-6 w-6" />
+                </button>
+              </div>
+              
+              <div className="bg-azul/5 rounded-lg p-3 text-sm">
+                <p><strong>Trabajador:</strong> {editRegistro.nombre}</p>
+                <p><strong>Fecha:</strong> {editRegistro.fecha}</p>
+                <p><strong>RUT:</strong> {editRegistro.rut}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-500">Hora Apertura EZ</label>
+                  <input type="time" value={editForm.hora_apertura} 
+                    onChange={e => setEditForm(f => ({...f, hora_apertura: e.target.value}))}
+                    className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-500">Hora Presentación</label>
+                  <input type="time" value={editForm.inicio_servicio}
+                    onChange={e => setEditForm(f => ({...f, inicio_servicio: e.target.value}))}
+                    className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-500">Hora Cierre</label>
+                  <input type="time" value={editForm.hora_cierre}
+                    onChange={e => setEditForm(f => ({...f, hora_cierre: e.target.value}))}
+                    className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-500">Estado</label>
+                  <select value={editForm.estado}
+                    onChange={e => setEditForm(f => ({...f, estado: e.target.value}))}
+                    className="w-full rounded-lg border border-gray-300 p-2 text-sm">
+                    <option value="PENDIENTE">PENDIENTE</option>
+                    <option value="CONFIRMADO">CONFIRMADO</option>
+                    <option value="RECHAZADO">RECHAZADO</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-rojo">H. Extras</label>
+                  <input type="number" step="0.5" min="0" value={editForm.horas_extras}
+                    onChange={e => setEditForm(f => ({...f, horas_extras: parseFloat(e.target.value)}))}
+                    className="w-full rounded-lg border border-gray-300 p-2 text-sm font-bold text-rojo" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-azul">H. Manejo</label>
+                  <input type="number" step="0.5" min="0" value={editForm.horas_manejo}
+                    onChange={e => setEditForm(f => ({...f, horas_manejo: parseFloat(e.target.value)}))}
+                    className="w-full rounded-lg border border-gray-300 p-2 text-sm font-bold text-azul" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-indigo-600">H. Nocturnas</label>
+                  <input type="number" step="0.5" min="0" value={editForm.horas_nocturnas}
+                    onChange={e => setEditForm(f => ({...f, horas_nocturnas: parseFloat(e.target.value)}))}
+                    className="w-full rounded-lg border border-gray-300 p-2 text-sm font-bold text-indigo-600" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-red-600">H. Menos Reposo</label>
+                  <input type="number" step="0.5" min="0" value={editForm.horas_menos_reposo}
+                    onChange={e => setEditForm(f => ({...f, horas_menos_reposo: parseFloat(e.target.value)}))}
+                    className="w-full rounded-lg border border-gray-300 p-2 text-sm font-bold text-red-600" />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500">Observación IL</label>
+                <textarea value={editForm.observacion_il}
+                  onChange={e => setEditForm(f => ({...f, observacion_il: e.target.value}))}
+                  className="w-full rounded-lg border border-gray-300 p-2 text-sm h-20"
+                  placeholder="Motivo de la modificación..." />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setEditModalOpen(false)}
+                  className="flex-1 rounded-lg border border-gray-300 py-2 text-sm font-bold text-gray-600 hover:bg-gray-50">
+                  Cancelar
+                </button>
+                <button onClick={guardarEdicion}
+                  className="flex-1 rounded-lg bg-green-600 py-2 text-sm font-bold text-white hover:brightness-110 flex items-center justify-center gap-2">
+                  <Save className="h-4 w-4" /> Guardar Cambios
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notificación de modificación */}
+      {notificacionModal.show && (
+        <div className="fixed bottom-4 right-4 bg-green-600 text-white rounded-xl shadow-lg p-4 max-w-md z-50 animate-in slide-in-from-bottom-2">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="h-6 w-6 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">Modificación Guardada</p>
+              <p className="text-sm mt-1">{notificacionModal.mensaje}</p>
+              <p className="text-xs mt-2 opacity-75">📧 Notificación enviada a {notificacionModal.trabajador}</p>
+            </div>
+            <button onClick={() => setNotificacionModal(prev => ({...prev, show: false}))}
+              className="opacity-75 hover:opacity-100">
+              <XCircle className="h-5 w-5" />
+            </button>
           </div>
         </div>
       )}

@@ -14,6 +14,7 @@ import {
   Upload,
   LogOut,
   ChevronRight,
+  FileText,
 } from 'lucide-react';
 
 export default function Menu() {
@@ -155,7 +156,8 @@ export default function Menu() {
             {card('/bitacora',        'Servicios en curso',     'Bitácora operativa de tu turno',        <TrainFront size={24} />, true)}
             {card('/mapa-ferroviario','Mapa Ferroviario',        'Eventos y trazado de la red en vivo',   <Map size={24} />)}
             {card('/pauta-diaria',    'Pauta Diaria',            'Planificación y asignación del día',    <ClipboardList size={24} />)}
-            {card('/asistencia',      'Asistencia y alistación', 'Apertura y cierre de tu turno',         <UserCheck size={24} />)}
+            {card('/asistencia',      'Asistencia',              'Apertura y cierre de tu turno',         <UserCheck size={24} />)}
+            {card('/alistacion',      'Mi Alistación',           'Tus horas trabajadas y notificaciones',  <FileText size={24} />)}
             {card('/turnos',          'Gráfico Tripulación',     'Programación mensual de turnos',        <Users size={24} />)}
           </>
         )}

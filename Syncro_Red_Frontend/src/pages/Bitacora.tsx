@@ -11,8 +11,30 @@ import {
    UTILIDAD — SHA-256 sin dependencias externas (Web Crypto API)
    ====================================================================== */
 async function sha256(text: string): Promise<string> {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  try {
+    // Verificar que crypto.subtle esté disponible (requiere HTTPS o localhost)
+    if (!crypto || !crypto.subtle) {
+      console.warn('crypto.subtle no disponible, usando hash simple');
+      // Fallback simple cuando crypto no está disponible
+      return simpleHash(text);
+    }
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch (err) {
+    console.error('Error en sha256:', err);
+    return simpleHash(text);
+  }
+}
+
+// Hash simple de fallback cuando crypto.subtle no está disponible
+function simpleHash(text: string): string {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    const char = text.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(16).padStart(64, '0');
 }
 
 /* ======================================================================
@@ -822,6 +844,9 @@ export default function Bitacora() {
     });
   });
 
+  // Debug: mostrar estado de completitud
+  console.log('todasEstacionesMarcadas:', todasEstacionesMarcadas, 'servicios:', servicios.length);
+
   useEffect(() => {
     if (!todasEstacionesMarcadas || servicios.length === 0) return;
     const ts = new Date().toISOString();
@@ -837,16 +862,45 @@ export default function Bitacora() {
       const horariosS = HORARIOS_SERVICIO[srv.n_servicio] || [];
       // Origen y destino reales: primera y última con horario programado
       const idxConHorario = ests.map((_, i) => i).filter(i => horariosS[i] != null);
-      const origen  = ests[idxConHorario[0]] ?? ests[0];
-      const destino = ests[idxConHorario[idxConHorario.length - 1]] ?? ests[ests.length - 1];
+      const origenIdx = idxConHorario[0];
+      const destinoIdx = idxConHorario[idxConHorario.length - 1];
+      const origen = ests[origenIdx] ?? ests[0];
+      const destino = ests[destinoIdx] ?? ests[ests.length - 1];
+      
+      // Verificar estado de origen y destino
+      const rOrigen = registros[`${srv.id}_${origenIdx}`];
+      const rDestino = registros[`${srv.id}_${destinoIdx}`];
       const atrasos = idxConHorario.filter(i => registros[`${srv.id}_${i}`]?.estado === 'ATRASO');
+      
       simple += `Servicio ${srv.n_servicio} — ${origen} → ${destino}`;
-      simple += atrasos.length === 0
-        ? `  ✓ Sin atrasos\n`
-        : `  ⚠ ${atrasos.length} atraso(s):\n`;
-      atrasos.forEach(idx => {
+      simple += atrasos.length === 0 ? `  ✓ Sin atrasos\n` : `  ⚠ ${atrasos.length} atraso(s):\n`;
+      
+      // Mostrar estado del origen (salida)
+      if (rOrigen) {
+        if (rOrigen.estado === 'ATRASO') {
+          simple += ` ${origen}: Salida con +${rOrigen.minutos_atraso} min [${rOrigen.categoria_atraso || 'Sin categoría'}]\n`;
+        } else {
+          simple += ` ${origen}: Salida a horario.\n`;
+        }
+      }
+      
+      // Mostrar estado del destino (llegada)
+      if (rDestino && destinoIdx !== origenIdx) {
+        if (rDestino.estado === 'ATRASO') {
+          simple += ` ${destino}: Llegada con +${rDestino.minutos_atraso} min [${rDestino.categoria_atraso || 'Sin categoría'}]\n`;
+        } else {
+          simple += ` ${destino}: Llegada a horario.\n`;
+        }
+      }
+      
+      // Mostrar otros atrasos intermedios (si existen)
+      const atrasosIntermedios = idxConHorario.filter(i => {
+        const r = registros[`${srv.id}_${i}`];
+        return r?.estado === 'ATRASO' && i !== origenIdx && i !== destinoIdx;
+      });
+      atrasosIntermedios.forEach(idx => {
         const r = registros[`${srv.id}_${idx}`];
-        simple += `    - ${ests[idx]}: +${r.minutos_atraso} min [${r.categoria_atraso}]\n`;
+        simple += ` ${ests[idx]}: Atraso de +${r.minutos_atraso} min [${r.categoria_atraso || 'Sin categoría'}]\n`;
       });
     });
     simple += `\n═══ Fin de reporte. ═══`;
@@ -893,18 +947,25 @@ export default function Bitacora() {
     det += `${'═'.repeat(60)}`;
 
     // ── HASHES SHA-256 ──────────────────────────────────────────────────
-    Promise.all([sha256(simple + ts), sha256(det + ts)]).then(([hashS, hashD]) => {
-      setReporteSimple({
-        tipo: 'SIMPLE', texto: simple,
-        hash: hashS, timestamp: ts, firmado: true
+    console.log('🔐 Generando hashes SHA-256...');
+    Promise.all([sha256(simple + ts), sha256(det + ts)])
+      .then(([hashS, hashD]) => {
+        console.log('✅ Hashes generados:', hashS.substring(0, 16) + '...');
+        setReporteSimple({
+          tipo: 'SIMPLE', texto: simple,
+          hash: hashS, timestamp: ts, firmado: true
+        });
+        setReporteDetallado({
+          tipo: 'DETALLADO', texto: det,
+          hash: hashD, timestamp: ts, firmado: true
+        });
+        console.log('✅ Reportes guardados en estado');
+      })
+      .catch(err => {
+        console.error('❌ Error generando hashes:', err);
       });
-      setReporteDetallado({
-        tipo: 'DETALLADO', texto: det,
-        hash: hashD, timestamp: ts, firmado: true
-      });
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [todasEstacionesMarcadas]);
+  // Dependencias: registros y servicios - para detectar cuando se marcan estaciones
+  }, [registros, servicios]);
 
   /* ====================================================================
      HELPERS
@@ -1111,9 +1172,80 @@ export default function Bitacora() {
       </div>
 
       {/* ══════════════════════════════════════════════════════════
-          SERVICIOS ACTIVOS
+          SERVICIOS ACTIVOS - Filtrar los que llegaron a destino hace +3 min
           ══════════════════════════════════════════════════════════ */}
-      {servicios.map(srv => {
+      {(() => {
+        // Función para verificar si un servicio debe mostrarse (solo 1 por equipo)
+        const debeMostrarServicio = (srv: ServicioActivo, index: number, equiposProcesados: Set<string>) => {
+          const equipo = `${srv.categoria_equipo}-${srv.unidad}`;
+          
+          // Si ya mostramos un servicio de este equipo, no mostrar otro
+          if (equiposProcesados.has(equipo)) {
+            return false;
+          }
+          
+          const estaciones = RUTAS[srv.ruta_id] || [];
+          const horariosSrv = HORARIOS_SERVICIO[srv.n_servicio] || [];
+          
+          // Encontrar índices de estaciones con horario programado
+          const indicesConHorario = estaciones
+            .map((_, i) => i)
+            .filter(i => horariosSrv[i] != null);
+          
+          if (indicesConHorario.length === 0) {
+            equiposProcesados.add(equipo);
+            return true;
+          }
+          
+          // Primera estación (salida)
+          const primerIdx = indicesConHorario[0];
+          const keyPrimero = `${srv.id}_${primerIdx}`;
+          const regPrimero = registros[keyPrimero];
+          
+          // Última estación con horario (destino)
+          const ultimoIdx = indicesConHorario[indicesConHorario.length - 1];
+          const keyUltimo = `${srv.id}_${ultimoIdx}`;
+          const regUltimo = registros[keyUltimo];
+          
+          // Si la salida no está marcada, es el próximo servicio de este equipo - mostrarlo
+          if (!regPrimero?.locked) {
+            equiposProcesados.add(equipo);
+            return true;
+          }
+          
+          // Si llegó a destino, verificar si han pasado 3 minutos
+          if (regUltimo?.locked && regUltimo.timestamp_iso) {
+            const horaMarca = new Date(regUltimo.timestamp_iso).getTime();
+            const ahora = Date.now();
+            const minutosTranscurridos = (ahora - horaMarca) / (1000 * 60);
+            
+            // Si han pasado menos de 3 minutos, mostrar aún
+            if (minutosTranscurridos < 3) {
+              equiposProcesados.add(equipo);
+              return true;
+            }
+            
+            // Si han pasado más de 3 minutos, buscar si hay siguiente servicio del mismo equipo
+            const siguienteDelMismoEquipo = servicios
+              .slice(index + 1)
+              .find(s => s.categoria_equipo === srv.categoria_equipo && s.unidad === srv.unidad);
+            
+            if (siguienteDelMismoEquipo) {
+              // No mostrar este, el siguiente será mostrado en su iteración
+              return false;
+            }
+          }
+          
+          // Servicio en curso (salida marcada pero destino no) o último servicio
+          equiposProcesados.add(equipo);
+          return true;
+        };
+        
+        // Filtrar servicios visibles (solo 1 por equipo)
+        const equiposProcesados = new Set<string>();
+        const serviciosVisibles = servicios.filter((srv, idx) => debeMostrarServicio(srv, idx, equiposProcesados));
+        
+        return serviciosVisibles.map(srv => {
         const expandido = servicioExpandido === srv.id;
         const estaciones = RUTAS[srv.ruta_id] || [];
         const horarios = HORARIOS_SERVICIO[srv.n_servicio] || [];
@@ -1396,7 +1528,8 @@ export default function Bitacora() {
             )}
           </div>
         );
-      })}
+      });
+      })()}
 
       {/* ══════════════════════════════════════════════════════════
           REPORTE / MINUTA CONSOLIDADA

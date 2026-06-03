@@ -15,4 +15,9 @@ urlpatterns = router.urls + [
     path('asistencia/pendientes/', views.PendientesAutorizacionView.as_view(), name='pendientes-autorizacion'),
     path('asistencia/consolidado/', views.ConsolidadoAsistenciaView.as_view(), name='consolidado'),
     path('asistencia/editar/<int:pk>/', views.EditarHorasAsistenciaView.as_view(), name='editar-horas'),
+    path('asistencia/eliminar/<int:pk>/', views.EliminarRegistroAsistenciaView.as_view(), name='eliminar-asistencia'),
+    path('asistencia/mi-historial/', views.MiHistorialAsistenciaView.as_view(), name='mi-historial'),
+    path('asistencia/notificaciones/', views.NotificacionesAsistenciaView.as_view(), name='notificaciones'),
+    path('asistencia/notificaciones/<int:pk>/leer/', views.NotificacionesAsistenciaView.as_view(), name='marcar-notificacion-leida'),
+    path('asistencia/exportar-excel/', views.ExportarExcelAsistenciaView.as_view(), name='exportar-excel'),
 ]

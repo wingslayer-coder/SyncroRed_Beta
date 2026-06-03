@@ -8,6 +8,7 @@ import PautaDiaria from './pages/PautaDiaria';
 import JefeServicio from './pages/JefeServicio';
 import Bitacora from './pages/Bitacora';
 import Asistencia from './pages/Asistencia';
+import Alistacion from './pages/Alistacion';
 import Turnos from './pages/Turnos';
 import Historicos from './pages/Historicos';
 import MapaFerroviario from './pages/MapaFerroviario';
@@ -33,6 +34,7 @@ function App() {
         <Route path="/bitacora" element={<ProtectedRoute><Bitacora /></ProtectedRoute>} />
         <Route path="/mapa-ferroviario" element={<ProtectedRoute><MapaFerroviario /></ProtectedRoute>} />
         <Route path="/asistencia" element={<ProtectedRoute><Asistencia /></ProtectedRoute>} />
+        <Route path="/alistacion" element={<ProtectedRoute><Alistacion /></ProtectedRoute>} />
         <Route path="/turnos" element={<ProtectedRoute><Turnos /></ProtectedRoute>} />
         <Route path="/historicos" element={<ProtectedRoute><Historicos /></ProtectedRoute>} />
         <Route path="/visor-bd" element={<ProtectedRoute><Placeholder title="Visor de Base de Datos" /></ProtectedRoute>} />
