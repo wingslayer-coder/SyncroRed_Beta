@@ -6,11 +6,21 @@ services:
     buildCommand: "./build.sh"
     startCommand: "gunicorn efe_sur.wsgi:application --bind 0.0.0.0:$PORT"
     envVars:
-      - key: DATABASE_URL
-        sync: false
       - key: SECRET_KEY
         sync: false
       - key: DEBUG
         value: "False"
+      - key: DB_NAME
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        value: "5432"
+      - key: DB_SSLMODE
+        value: "require"
       - key: PYTHON_VERSION
         value: "3.11.9"
