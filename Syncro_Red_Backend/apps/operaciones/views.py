@@ -1,6 +1,7 @@
 from rest_framework import viewsets, decorators, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.parsers import MultiPartParser, FormParser
 from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
 from django.db import transaction
@@ -156,6 +157,21 @@ class MaestroTurnoViewSet(viewsets.ModelViewSet):
     queryset = MaestroTurno.objects.all().order_by('num_turno')
     serializer_class = MaestroTurnoSerializer
 
+    @decorators.action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    def cargar_csv(self, request):
+        """Carga el Maestro de Turnos desde CSV (solo ADMIN)."""
+        if (getattr(request.user, 'cargo', '') or '').upper() != 'ADMIN':
+            return Response({'error': 'Solo el administrador puede cargar el maestro de turnos'}, status=status.HTTP_403_FORBIDDEN)
+        archivo = request.FILES.get('archivo')
+        if not archivo:
+            return Response({'error': 'Adjunte el archivo CSV en el campo "archivo"'}, status=400)
+        from .importadores import importar_maestro_turnos
+        try:
+            res = importar_maestro_turnos(archivo)
+        except Exception as e:
+            return Response({'error': f'No se pudo procesar el CSV: {e}'}, status=400)
+        return Response({'ok': True, **res})
+
 
 class GraficoMensualViewSet(viewsets.ModelViewSet):
     serializer_class = GraficoMensualSerializer
@@ -170,6 +186,26 @@ class GraficoMensualViewSet(viewsets.ModelViewSet):
         if mes:
             qs = qs.filter(fecha__month=mes)
         return qs
+
+    @decorators.action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    def cargar_csv(self, request):
+        """Carga manual del gráfico mensual desde CSV grilla (RUT;1;2;...). Solo ADMIN."""
+        if (getattr(request.user, 'cargo', '') or '').upper() != 'ADMIN':
+            return Response({'error': 'Solo el administrador puede cargar el gráfico'}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            anio = int(request.data.get('anio'))
+            mes = int(request.data.get('mes'))
+        except (TypeError, ValueError):
+            return Response({'error': 'anio y mes son requeridos'}, status=400)
+        archivo = request.FILES.get('archivo')
+        if not archivo:
+            return Response({'error': 'Adjunte el archivo CSV en el campo "archivo"'}, status=400)
+        from .importadores import importar_grafico_csv
+        try:
+            res = importar_grafico_csv(archivo, anio, mes)
+        except Exception as e:
+            return Response({'error': f'No se pudo procesar el CSV: {e}'}, status=400)
+        return Response({'ok': True, 'anio': anio, 'mes': mes, **res})
 
 
 class ItinerarioEquipoViewSet(viewsets.ModelViewSet):

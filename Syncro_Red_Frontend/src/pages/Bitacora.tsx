@@ -1437,9 +1437,10 @@ export default function Bitacora() {
           return true;
         };
         
-        // Filtrar servicios visibles (solo 1 por equipo)
-        const equiposProcesados = new Set<string>();
-        const serviciosVisibles = servicios.filter((srv, idx) => debeMostrarServicio(srv, idx, equiposProcesados));
+        // Mostrar TODOS los servicios cargados (cada uno con sus pasadas para marcar).
+        // Antes se mostraba solo uno por equipo, lo que ocultaba servicios y dejaba el reporte en pendiente.
+        const serviciosVisibles = servicios;
+        void debeMostrarServicio; // se conserva por si se reactiva el modo "uno por equipo"
         
         return serviciosVisibles.map(srv => {
         const expandido = servicioExpandido === srv.id;

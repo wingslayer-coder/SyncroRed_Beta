@@ -1,7 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard, Radio, BookOpen, ClipboardList, TrainFront, Map, UserCheck,
-  FileText, CalendarDays, Database, Users, UserMinus, TrainTrack, MapPin, Upload,
+  FileText, CalendarDays, Database, Users, UserMinus, TrainTrack,
 } from 'lucide-react';
 
 export interface NavItem {

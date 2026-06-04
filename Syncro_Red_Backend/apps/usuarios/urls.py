@@ -11,6 +11,7 @@ urlpatterns = router.urls + [
     path('change-password/', views.ChangePasswordView.as_view(), name='change_password'),
     path('recomendar-reemplazo/', views.RecomendarReemplazoView.as_view(), name='recomendar-reemplazo'),
     path('admin/vaciar-bd/', views.WipeBaseDatosView.as_view(), name='vaciar-bd'),
+    path('admin/cargar-tripulacion/', views.CargarTripulacionView.as_view(), name='cargar-tripulacion'),
     path('asistencia/abrir/', views.AbrirTurnoView.as_view(), name='abrir-turno'),
     path('asistencia/cerrar/', views.CerrarTurnoView.as_view(), name='cerrar-turno'),
     path('asistencia/mi-registro/', views.MiAsistenciaView.as_view(), name='mi-asistencia'),

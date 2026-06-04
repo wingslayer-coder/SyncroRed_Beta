@@ -108,6 +108,28 @@ class MeView(views.APIView):
         })
 
 
+from rest_framework.parsers import MultiPartParser, FormParser
+
+
+class CargarTripulacionView(views.APIView):
+    """Carga la tripulación desde CSV (RUT;CLAVE;NOMBRE;CARGO). Solo ADMIN."""
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        if (getattr(request.user, 'cargo', '') or '').upper() != 'ADMIN':
+            return Response({'error': 'Solo el administrador puede cargar la tripulación'}, status=status.HTTP_403_FORBIDDEN)
+        archivo = request.FILES.get('archivo')
+        if not archivo:
+            return Response({'error': 'Adjunte el archivo CSV en el campo "archivo"'}, status=400)
+        from apps.operaciones.importadores import importar_tripulacion
+        try:
+            res = importar_tripulacion(archivo)
+        except Exception as e:
+            return Response({'error': f'No se pudo procesar el CSV: {e}'}, status=400)
+        return Response({'ok': True, **res})
+
+
 class WipeBaseDatosView(views.APIView):
     """Vacía los datos OPERATIVOS de la base (solo ADMIN). Conserva usuarios y datos maestros.
     Requiere body {confirm: 'ELIMINAR'} para evitar borrados accidentales."""

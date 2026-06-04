@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   Database, RefreshCw, Search, ShieldAlert, AlertCircle, Wrench,
   FileText, ClipboardList, TrainFront, UserMinus, TrainTrack, Users, Trash2, X,
+  Upload, CalendarRange,
 } from 'lucide-react';
 
 interface Col { key: string; label: string; trunc?: boolean }
@@ -139,6 +140,69 @@ export default function VisorBaseDatos() {
 
   useEffect(() => { cargar(activa); /* eslint-disable-next-line */ }, [activa.key]);
 
+  const [cargando, setCargando] = useState<string | null>(null);
+
+  const cargarMaestro = async (file: File) => {
+    setCargando('maestro');
+    const fd = new FormData(); fd.append('archivo', file);
+    try {
+      const res = await client.post('/operaciones/maestro-turnos/cargar_csv/', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const r = res.data;
+      alert(`Maestro de turnos cargado: ${r.creados} creados, ${r.actualizados} actualizados, ${r.eliminados} obsoletos eliminados (tipos: ${r.tipos.join(', ')}).`);
+    } catch (e: any) { alert('Error: ' + (e.response?.data?.error || e.message)); }
+    finally { setCargando(null); }
+  };
+
+  const cargarTripulacion = async (file: File) => {
+    setCargando('tripulacion');
+    const fd = new FormData(); fd.append('archivo', file);
+    try {
+      const res = await client.post('/usuarios/admin/cargar-tripulacion/', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const r = res.data;
+      alert(`Tripulación cargada: ${r.creados} creados, ${r.actualizados} actualizados.`);
+    } catch (e: any) { alert('Error: ' + (e.response?.data?.error || e.message)); }
+    finally { setCargando(null); }
+  };
+
+  const generarGrafico = async () => {
+    const ahora = new Date();
+    const mes = parseInt(prompt('Mes a generar (1-12):', String(ahora.getMonth() + 1)) || '');
+    if (!mes || mes < 1 || mes > 12) return;
+    const anio = parseInt(prompt('Año:', String(ahora.getFullYear())) || '');
+    if (!anio) return;
+    if (!confirm(`¿Generar el gráfico de ${mes}/${anio}? Reemplaza el existente de ese mes.`)) return;
+    setCargando('grafico');
+    try {
+      await client.post('/operaciones/parejas-tripulacion/auto_emparejar/'); // asegura parejas
+      const res = await client.post('/operaciones/grafico-mensual/generar/', { anio, mes });
+      const r = res.data;
+      alert(`Gráfico ${mes}/${anio} generado.\nParejas: ${r.parejas} · Cobertura: ${r.cobertura_pct}% · Máx días seguidos: ${r.max_dias_seguidos} · Menos-reposo: ${r.menos_reposo}`);
+    } catch (e: any) { alert('Error: ' + (e.response?.data?.error || e.message)); }
+    finally { setCargando(null); }
+  };
+
+  const cargarGraficoCsv = async (file: File) => {
+    const ahora = new Date();
+    const mes = parseInt(prompt('Mes del gráfico (1-12):', String(ahora.getMonth() + 1)) || '');
+    if (!mes || mes < 1 || mes > 12) return;
+    const anio = parseInt(prompt('Año:', String(ahora.getFullYear())) || '');
+    if (!anio) return;
+    if (!confirm(`¿Cargar el gráfico de ${mes}/${anio} desde el archivo? Reemplaza ese mes para los RUT del archivo.`)) return;
+    setCargando('graficoCsv');
+    const fd = new FormData();
+    fd.append('archivo', file);
+    fd.append('mes', String(mes));
+    fd.append('anio', String(anio));
+    try {
+      const res = await client.post('/operaciones/grafico-mensual/cargar_csv/', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const r = res.data;
+      let msg = `Gráfico ${mes}/${anio} cargado: ${r.trabajadores} trabajadores, ${r.asignaciones} asignaciones.`;
+      if (r.desconocidos?.length) msg += `\nRUT no encontrados (omitidos): ${r.desconocidos.join(', ')}`;
+      alert(msg);
+    } catch (e: any) { alert('Error: ' + (e.response?.data?.error || e.message)); }
+    finally { setCargando(null); }
+  };
+
   const vaciarBD = async () => {
     setWiping(true);
     try {
@@ -175,12 +239,36 @@ export default function VisorBaseDatos() {
           </div>
         </div>
         {esAdmin && (
-          <button
-            onClick={() => setShowWipe(true)}
-            className="flex items-center gap-2 rounded-lg border border-rojo/30 bg-rojo/5 px-3 py-2 text-sm font-bold text-rojo transition-colors hover:bg-rojo hover:text-white"
-          >
-            <Trash2 className="h-4 w-4" /> Vaciar base de datos
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className={`flex cursor-pointer items-center gap-2 rounded-lg border border-azul/30 bg-azul/5 px-3 py-2 text-sm font-bold text-azul hover:bg-azul hover:text-white ${cargando === 'maestro' ? 'opacity-50' : ''}`}>
+              <Upload className="h-4 w-4" /> {cargando === 'maestro' ? 'Cargando…' : 'Maestro de turnos'}
+              <input type="file" accept=".csv" hidden disabled={!!cargando}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) cargarMaestro(f); (e.target as HTMLInputElement).value = ''; }} />
+            </label>
+            <label className={`flex cursor-pointer items-center gap-2 rounded-lg border border-azul/30 bg-azul/5 px-3 py-2 text-sm font-bold text-azul hover:bg-azul hover:text-white ${cargando === 'tripulacion' ? 'opacity-50' : ''}`}>
+              <Users className="h-4 w-4" /> {cargando === 'tripulacion' ? 'Cargando…' : 'Tripulación'}
+              <input type="file" accept=".csv" hidden disabled={!!cargando}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) cargarTripulacion(f); (e.target as HTMLInputElement).value = ''; }} />
+            </label>
+            <button
+              onClick={generarGrafico}
+              disabled={!!cargando}
+              className="flex items-center gap-2 rounded-lg border border-azul/30 bg-azul/5 px-3 py-2 text-sm font-bold text-azul hover:bg-azul hover:text-white disabled:opacity-50"
+            >
+              <CalendarRange className="h-4 w-4" /> {cargando === 'grafico' ? 'Generando…' : 'Generar gráfico'}
+            </button>
+            <label className={`flex cursor-pointer items-center gap-2 rounded-lg border border-azul/30 bg-azul/5 px-3 py-2 text-sm font-bold text-azul hover:bg-azul hover:text-white ${cargando === 'graficoCsv' ? 'opacity-50' : ''}`}>
+              <Upload className="h-4 w-4" /> {cargando === 'graficoCsv' ? 'Cargando…' : 'Gráfico (CSV)'}
+              <input type="file" accept=".csv" hidden disabled={!!cargando}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) cargarGraficoCsv(f); (e.target as HTMLInputElement).value = ''; }} />
+            </label>
+            <button
+              onClick={() => setShowWipe(true)}
+              className="flex items-center gap-2 rounded-lg border border-rojo/30 bg-rojo/5 px-3 py-2 text-sm font-bold text-rojo transition-colors hover:bg-rojo hover:text-white"
+            >
+              <Trash2 className="h-4 w-4" /> Vaciar BD
+            </button>
+          </div>
         )}
       </div>
 
