@@ -1,0 +1,65 @@
+{
+  "expo": {
+    "name": "Syncro Red",
+    "slug": "syncro-red",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "syncro-red",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#C0392B"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#C0392B"
+      },
+      "package": "cl.efesur.syncrored",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION"
+      ]
+    },
+    "ios": {
+      "bundleIdentifier": "cl.efesur.syncrored",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Syncro Red necesita tu ubicación para registrar la posición del tren en servicio.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Syncro Red usa tu ubicación en segundo plano para seguimiento continuo del tren.",
+        "NSLocationAlwaysUsageDescription": "Syncro Red usa tu ubicación en segundo plano para seguimiento continuo del tren."
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Syncro Red usa tu ubicación para tracking del tren.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      "expo-asset",
+      "expo-font"
+    ],
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "02d29afd-bb0f-45b9-9528-fa59d15a6a41"
+      }
+    }
+  }
+}

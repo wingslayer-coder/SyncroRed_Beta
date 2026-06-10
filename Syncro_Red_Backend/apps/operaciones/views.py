@@ -6,9 +6,10 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
 from django.db import transaction
 from django.db.models import Sum
+import logging
 from .models import (
     ServicioActivo, ServicioHistorico, RegistroEstacion, MaestroTurno, GraficoMensual,
-    ItinerarioEquipo, ParejaTripulacion, Feriado
+    ItinerarioEquipo, ParejaTripulacion, Feriado, ItinerarioMaestro
 )
 from .serializers import (
     ServicioActivoSerializer, ServicioHistoricoSerializer, RegistroEstacionSerializer,
@@ -19,6 +20,8 @@ from .filters import ServicioActivoFilter, RegistroEstacionFilter, ItinerarioEqu
 from apps.usuarios.models import Usuario, AusenciaTemporal
 from apps.alertas.models import Emergencia, Incidencia, FallaEquipo
 from apps.bitacora.models import ReporteFinal, NovedadOperativa
+
+logger = logging.getLogger(__name__)
 
 
 class ServicioActivoViewSet(viewsets.ModelViewSet):
@@ -419,12 +422,12 @@ class PautaDiariaView(APIView):
 
 
 class MiTurnoView(APIView):
-    """Devuelve el turno asignado al usuario autenticado para la fecha dada."""
+    """Devuelve el turno + servicio activo + itinerario para el usuario autenticado."""
 
     def get(self, request):
-        fecha = request.query_params.get('fecha')
-        if not fecha:
-            return Response({'error': 'Parámetro fecha requerido'}, status=400)
+        import datetime as _dt
+        from django.db.models import Q
+        fecha = request.query_params.get('fecha') or str(timezone.now().date())
 
         try:
             grafico = GraficoMensual.objects.select_related('rut').get(fecha=fecha, rut=request.user)
@@ -432,31 +435,59 @@ class MiTurnoView(APIView):
             return Response({'turno': None, 'mensaje': 'Sin turno asignado para esta fecha'})
 
         num_turno = grafico.num_turno.strip()
-
-        weekday = __import__('datetime').date.fromisoformat(fecha).isoweekday()
+        weekday = _dt.date.fromisoformat(fecha).isoweekday()
         tipo_dia = 'DOM' if weekday == 7 else 'SAB' if weekday == 6 else 'LV'
 
+        turno_data = {'turno': num_turno, 'tipo_dia': tipo_dia}
         try:
             mt = MaestroTurno.objects.get(num_turno=num_turno, tipo_dia=tipo_dia)
-            return Response({
-                'turno': num_turno,
-                'tipo_dia': tipo_dia,
+            turno_data.update({
                 'servicios': mt.servicios or '---',
                 'presentacion_hora': mt.presentacion_hora or '---',
                 'presentacion_lugar': mt.presentacion_lugar or '---',
+                'apertura_hora': mt.apertura_hora or '---',
+                'apertura_lugar': mt.apertura_lugar or '---',
                 'cierre_hora': mt.cierre_hora or '---',
                 'cierre_lugar': mt.cierre_lugar or '---',
             })
         except MaestroTurno.DoesNotExist:
-            return Response({
-                'turno': num_turno,
-                'tipo_dia': tipo_dia,
-                'servicios': '---',
-                'presentacion_hora': '---',
-                'presentacion_lugar': '---',
-                'cierre_hora': '---',
-                'cierre_lugar': '---',
+            turno_data.update({
+                'servicios': '---', 'presentacion_hora': '---', 'presentacion_lugar': '---',
+                'apertura_hora': '---', 'apertura_lugar': '---',
+                'cierre_hora': '---', 'cierre_lugar': '---',
             })
+
+        rut = request.user.rut
+        servicio = ServicioActivo.objects.filter(
+            fecha=fecha
+        ).filter(Q(rut_maquinista=rut) | Q(rut_ayudante=rut)).exclude(estado='CERRADO').first()
+
+        servicio_data = None
+        itinerario = []
+        if servicio:
+            servicio_data = {
+                'id': servicio.id,
+                'tren_num': servicio.tren_num,
+                'equipo_id': servicio.equipo_id,
+                'estado': servicio.estado,
+                'latitud': servicio.latitud,
+                'longitud': servicio.longitud,
+                'timestamp_gps': servicio.timestamp_gps.isoformat() if servicio.timestamp_gps else None,
+            }
+            tren_servicios = [s.strip() for s in (mt.servicios if 'mt' in dir() else '').split(',') if s.strip()] if servicio else []
+            if tren_servicios:
+                tren_num_iter = tren_servicios[0]
+                estaciones_qs = ItinerarioMaestro.objects.filter(
+                    tren_num=tren_num_iter, tipo_dia=tipo_dia
+                ).order_by('orden_estacion')
+                itinerario = list(estaciones_qs.values('estacion_nombre', 'orden_estacion', 'hora_programada'))
+
+        return Response({
+            **turno_data,
+            'fecha': fecha,
+            'servicio_activo': servicio_data,
+            'itinerario': itinerario,
+        })
 
 
 class TripulacionDisponibleView(APIView):
@@ -635,3 +666,148 @@ class EventosMapaView(APIView):
             })
 
         return Response({'fecha_desde': fecha_desde, 'fecha_hasta': fecha_hasta, 'eventos': eventos})
+
+
+class GpsUpdateView(APIView):
+    """Endpoint liviano para actualizar posición GPS desde el celular del maquinista.
+    Solo actualiza latitud, longitud y timestamp_gps — sin serializar todo el objeto.
+    Publica el update en el grupo WebSocket del tren para tiempo real en el panel.
+    """
+
+    def patch(self, request, pk):
+        lat = request.data.get('latitud')
+        lon = request.data.get('longitud')
+        if lat is None or lon is None:
+            return Response({'error': 'latitud y longitud son requeridos'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            lat = float(lat)
+            lon = float(lon)
+        except (TypeError, ValueError):
+            return Response({'error': 'latitud y longitud deben ser numéricos'}, status=status.HTTP_400_BAD_REQUEST)
+
+        ts = timezone.now()
+        try:
+            servicio = ServicioActivo.objects.get(pk=pk)
+        except ServicioActivo.DoesNotExist:
+            return Response({'error': 'Servicio no encontrado'}, status=status.HTTP_404_NOT_FOUND)
+
+        servicio.latitud = lat
+        servicio.longitud = lon
+        servicio.timestamp_gps = ts
+        servicio.save(update_fields=['latitud', 'longitud', 'timestamp_gps'])
+
+        try:
+            from channels.layers import get_channel_layer
+            from asgiref.sync import async_to_sync
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                f'gps_tren_{servicio.tren_num}',
+                {
+                    'type': 'gps_update',
+                    'tren_num': servicio.tren_num,
+                    'latitud': lat,
+                    'longitud': lon,
+                    'timestamp_gps': ts.isoformat(),
+                }
+            )
+        except Exception as ws_err:
+            logger.warning('WebSocket broadcast GPS falló (no crítico): %s', ws_err)
+
+        return Response({'ok': True})
+
+
+class SyncBulkView(APIView):
+    """Recibe una cola de operaciones pendientes desde la app móvil offline.
+
+    Body esperado:
+    {
+        "operaciones": [
+            {
+                "tipo": "registro_estacion" | "apertura_servicio" | "cierre_servicio" | "gps",
+                "timestamp_dispositivo": "2026-06-07T10:30:00",
+                "datos": { ... campos según tipo ... }
+            },
+            ...
+        ]
+    }
+    Las operaciones se procesan en orden cronológico por timestamp_dispositivo.
+    Responde con lista de resultados: ok o error por operación.
+    """
+
+    def post(self, request):
+        operaciones = request.data.get('operaciones', [])
+        if not isinstance(operaciones, list):
+            return Response({'error': 'operaciones debe ser una lista'}, status=status.HTTP_400_BAD_REQUEST)
+
+        operaciones_ordenadas = sorted(
+            operaciones,
+            key=lambda o: o.get('timestamp_dispositivo', ''),
+        )
+
+        resultados = []
+        for i, op in enumerate(operaciones_ordenadas):
+            tipo = op.get('tipo')
+            datos = op.get('datos', {})
+            ts = op.get('timestamp_dispositivo')
+            try:
+                with transaction.atomic():
+                    if tipo == 'registro_estacion':
+                        obj, created = RegistroEstacion.objects.update_or_create(
+                            fecha=datos['fecha'],
+                            tren_num=datos['tren_num'],
+                            estacion_id=datos['estacion_id'],
+                            defaults={
+                                'estado': datos.get('estado', 'SIN MARCAR'),
+                                'obs': datos.get('obs', ''),
+                                'color': datos.get('color', ''),
+                            },
+                        )
+                        resultados.append({'indice': i, 'tipo': tipo, 'ok': True, 'creado': created, 'id': obj.id})
+
+                    elif tipo == 'gps':
+                        ServicioActivo.objects.filter(pk=datos['servicio_id']).update(
+                            latitud=float(datos['latitud']),
+                            longitud=float(datos['longitud']),
+                            timestamp_gps=ts or timezone.now(),
+                        )
+                        resultados.append({'indice': i, 'tipo': tipo, 'ok': True})
+
+                    elif tipo == 'apertura_servicio':
+                        from apps.usuarios.models import RegistroOperativo
+                        obj, _ = RegistroOperativo.objects.update_or_create(
+                            fecha=datos['fecha'],
+                            rut_trabajador_id=datos.get('rut', request.user.rut),
+                            defaults={
+                                'lugar_apertura': datos.get('lugar_apertura', ''),
+                                'hora_apertura': datos.get('hora_apertura', ''),
+                                'inicio_servicio': datos.get('inicio_servicio', ''),
+                            },
+                        )
+                        resultados.append({'indice': i, 'tipo': tipo, 'ok': True, 'id': obj.id})
+
+                    elif tipo == 'cierre_servicio':
+                        from apps.usuarios.models import RegistroOperativo
+                        RegistroOperativo.objects.filter(
+                            fecha=datos['fecha'],
+                            rut_trabajador_id=datos.get('rut', request.user.rut),
+                        ).update(
+                            hora_cierre=datos.get('hora_cierre', ''),
+                            fecha_cierre=datos.get('fecha_cierre') or datos['fecha'],
+                        )
+                        resultados.append({'indice': i, 'tipo': tipo, 'ok': True})
+
+                    else:
+                        resultados.append({'indice': i, 'tipo': tipo, 'ok': False, 'error': f'Tipo desconocido: {tipo}'})
+
+            except Exception as exc:
+                logger.error('SyncBulk error en operación %d tipo=%s: %s', i, tipo, exc)
+                resultados.append({'indice': i, 'tipo': tipo, 'ok': False, 'error': str(exc)})
+
+        total = len(resultados)
+        ok_count = sum(1 for r in resultados if r.get('ok'))
+        return Response({
+            'total': total,
+            'ok': ok_count,
+            'errores': total - ok_count,
+            'resultados': resultados,
+        }, status=status.HTTP_200_OK)

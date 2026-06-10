@@ -1,0 +1,22 @@
+line-length = 120
+target-version = "py312"
+exclude = [
+    "*/migrations/*",
+    "*/settings.py",
+    "conftest.py",
+    "importar_desde_sqlite.py",
+    "importar_itinerarios.py",
+    "*/datos.py",
+]
+
+[lint]
+select = ["E", "F", "W"]
+ignore = [
+    "E501",
+    "F401",
+    "E402",
+    "E722",
+    "W293",
+    "W291",
+    "F841",
+]

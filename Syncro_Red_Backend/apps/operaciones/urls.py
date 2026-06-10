@@ -1,6 +1,7 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 from . import views
+from .views import GpsUpdateView, SyncBulkView
 
 router = DefaultRouter()
 router.register(r'servicios-activos', views.ServicioActivoViewSet, basename='servicio-activo')
@@ -21,4 +22,6 @@ urlpatterns = [
     path('tripulacion-disponible/', views.TripulacionDisponibleView.as_view(), name='tripulacion-disponible'),
     path('dashboard/', views.DashboardView.as_view(), name='dashboard'),
     path('eventos-mapa/', views.EventosMapaView.as_view(), name='eventos-mapa'),
+    path('servicios-activos/<int:pk>/gps/', GpsUpdateView.as_view(), name='gps-update'),
+    path('sync/bulk/', SyncBulkView.as_view(), name='sync-bulk'),
 ]

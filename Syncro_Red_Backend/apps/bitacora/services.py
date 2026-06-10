@@ -9,9 +9,9 @@ def generar_reporte_turno(fecha, usuario_nombre, rol):
     logger.info(f"Generando reporte para fecha {fecha}, usuario {usuario_nombre}, rol {rol}")
     
     try:
-        reporte = f"Reporte de Servicios\n"
+        reporte = "Reporte de Servicios\n"
         reporte += f"Fecha de Emisión : {fecha}\n"
-        reporte += f"Personal :\n"
+        reporte += "Personal :\n"
 
         # Buscamos quién operó hoy para armar la tripulación dinámicamente
         tripulacion = ServicioActivo.objects.filter(fecha=fecha).first()
@@ -95,7 +95,7 @@ def generar_reporte_turno(fecha, usuario_nombre, rol):
                 estado_dest_txt = "a Horario" if reg_destino["estado"] == "A LA HORA" else "con Atraso"
                 reporte += f"• Llegada a {est_destino_nombre} {estado_dest_txt}"
 
-        reporte += f"\n\nFin del reporte técnico.."
+        reporte += "\n\nFin del reporte técnico.."
         return reporte
 
     except Exception as e:

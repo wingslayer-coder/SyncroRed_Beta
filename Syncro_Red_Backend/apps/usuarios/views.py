@@ -1,20 +1,30 @@
 import secrets
 import datetime
+import logging
 from math import floor
 from rest_framework import viewsets, views, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django.db import transaction
 from .models import Usuario, RegistroOperativo, AusenciaTemporal
 from .serializers import UsuarioSerializer, RegistroOperativoSerializer, AusenciaTemporalSerializer
+from .permissions import IsAdminOrStaff, IsJefaturaOSuperior, IsPropioUsuarioOJefatura
+
+logger = logging.getLogger(__name__)
+
+
+class LoginRateThrottle(ScopedRateThrottle):
+    scope = 'login'
 
 
 class LoginRutView(views.APIView):
     permission_classes = []
     authentication_classes = []
+    throttle_classes = [LoginRateThrottle]
 
     def post(self, request):
         rut = request.data.get('rut')
@@ -26,12 +36,11 @@ class LoginRutView(views.APIView):
         try:
             user = Usuario.objects.get(rut=rut)
         except Usuario.DoesNotExist:
-            print(f"[DEBUG] NO ENCONTRADO rut={repr(rut)}")
-            return Response({'error': 'Usuario no encontrado'}, status=401)
+            logger.warning('Login fallido: RUT no encontrado')
+            return Response({'error': 'Credenciales inválidas'}, status=401)
 
-        ok = user.check_password(password)
-        print(f"[DEBUG] rut={repr(rut)} pwd={repr(password)} check={ok} stored_hash={user.password[:30]}")
-        if not ok:
+        if not user.check_password(password):
+            logger.warning('Login fallido: contraseña incorrecta para RUT existente')
             return Response({'error': 'Credenciales inválidas'}, status=401)
 
         refresh = RefreshToken.for_user(user)
@@ -53,8 +62,9 @@ class LoginRutView(views.APIView):
 class UsuarioViewSet(viewsets.ModelViewSet):
     queryset = Usuario.objects.all()
     serializer_class = UsuarioSerializer
+    permission_classes = [IsJefaturaOSuperior]
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminOrStaff])
     def reset_password(self, request, pk=None):
         """Admin resetea la contraseña de un usuario y genera una temporal."""
         user = self.get_object()
@@ -74,8 +84,8 @@ class ChangePasswordView(views.APIView):
     def post(self, request):
         user = request.user
         new_password = request.data.get('new_password')
-        if not new_password or len(new_password) < 4:
-            return Response({'error': 'La contraseña debe tener al menos 4 caracteres.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not new_password or len(new_password) < 8:
+            return Response({'error': 'La contraseña debe tener al menos 8 caracteres.'}, status=status.HTTP_400_BAD_REQUEST)
         user.set_password(new_password)
         user.must_change_password = False
         user.save()
@@ -83,13 +93,23 @@ class ChangePasswordView(views.APIView):
 
 
 class RegistroOperativoViewSet(viewsets.ModelViewSet):
-    queryset = RegistroOperativo.objects.all()
     serializer_class = RegistroOperativoSerializer
+    permission_classes = [IsAuthenticated, IsPropioUsuarioOJefatura]
+
+    def get_queryset(self):
+        user = self.request.user
+        from .permissions import ROLES_JEFATURA, _cargo
+        if _cargo(user) in ROLES_JEFATURA or user.is_staff:
+            return RegistroOperativo.objects.all()
+        return RegistroOperativo.objects.filter(rut_trabajador=user)
 
 
 class AusenciaTemporalViewSet(viewsets.ModelViewSet):
-    queryset = AusenciaTemporal.objects.all()
     serializer_class = AusenciaTemporalSerializer
+    permission_classes = [IsJefaturaOSuperior]
+
+    def get_queryset(self):
+        return AusenciaTemporal.objects.all()
 
 
 class MeView(views.APIView):

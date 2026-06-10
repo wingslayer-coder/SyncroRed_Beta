@@ -84,7 +84,7 @@ class ReporteFinalViewSet(viewsets.ModelViewSet):
             print(f"[DEBUG] Exportando Bitácora Operativa para fecha: {fecha}")
             
             from apps.operaciones.models import ServicioActivo, RegistroEstacion
-            logger.info(f"[DEBUG] Modelos importados correctamente")
+            logger.info("[DEBUG] Modelos importados correctamente")
             
             # Obtener servicios activos de la fecha
             if fecha:
